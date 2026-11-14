@@ -1,6 +1,6 @@
 # KORA Backend
 
-FastAPI-бекенд системи моніторингу стану будівель: приймає дані ESP32 + MPU6050, приймає **вже оброблені** результати супутникового аналізу NASA NISAR (сирі SAR-знімки бекенд не обробляє), зберігає їх у PostgreSQL (Supabase), створює попередження та віддає все для React Dashboard.
+FastAPI-бекенд системи моніторингу стану будівель: приймає дані ESP32 + MPU6050, приймає **вже оброблені** результати супутникового аналізу NASA NISAR (сирі SAR-знімки бекенд не обробляє), зберігає їх у PostgreSQL, створює попередження та віддає все для React Dashboard.
 
 > Попередження (`WARNING`/`CRITICAL`) — індикатори для перевірки, а не висновок про аварійність будівлі.
 
@@ -31,14 +31,25 @@ Swagger: <http://localhost:8000/docs> (кнопка **Authorize** → ключ �
 
 Без `DATABASE_URL` використовується локальний SQLite (`kora.db`). Таблиці створюються автоматично при старті.
 
-## Підключення Supabase
+## База даних
 
-1. Supabase → Project Settings → Database → Connection string (URI).
-2. На free tier використовуйте **Session pooler** (працює по IPv4).
-3. Вставте у `.env`: `DATABASE_URL=postgresql://postgres.xxx:PASSWORD@...pooler.supabase.com:5432/postgres`
-   (префікс `postgresql://` автоматично перетворюється на `postgresql+asyncpg://`).
+`DATABASE_URL` у `.env` визначає БД:
+
+- **Локально / демо:** `sqlite+aiosqlite:///./kora.db` (значення за замовчуванням, нічого налаштовувати не треба).
+- **Безкоштовний Postgres:** [Neon](https://neon.tech), Supabase або локальний Postgres. Вставте connection string як `DATABASE_URL=postgresql://user:pass@host/db` (префікс автоматично перетворюється на `postgresql+asyncpg://`; параметр `sslmode` обробляється). Для Supabase free tier використовуйте Session pooler (IPv4).
+
+На Render free **не використовуйте SQLite**: файлова система стирається при кожному перезапуску.
 
 `.env` у `.gitignore` — паролі та ключі в репозиторій не потрапляють.
+
+## Демо-дані
+
+Для презентації можна заповнити працюючий бекенд тестовими об'єктами, вимірюваннями та супутниковими точками:
+
+```bash
+API_URL=http://localhost:8000 API_KEY_ADMIN=... API_KEY_DEVICE=... API_KEY_SATELLITE=... \
+  python scripts/seed_demo.py
+```
 
 ## Авторизація запису
 
@@ -118,7 +129,7 @@ pytest
 - Root Directory: `backend`
 - Build: `pip install -r requirements.txt`
 - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Змінні середовища: `DATABASE_URL`, `API_KEY_*`, `CORS_ORIGINS` (адреса фронтенду).
+- Змінні середовища: `DATABASE_URL` (Postgres, наприклад Neon), `API_KEY_ADMIN`, `API_KEY_DEVICE`, `API_KEY_SATELLITE`, `CORS_ORIGINS` (адреса фронтенду на Vercel, без слеша в кінці, наприклад `https://kora.vercel.app`).
 - Free-інстанс «засинає» після простою — перший запит може йти ~30–60 с.
 
 ## Структура
