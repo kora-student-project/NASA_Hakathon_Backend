@@ -40,11 +40,11 @@ L_BAND_WAVELENGTH_M = 0.238
 
 # ---------------------------------------------------------------- налаштування
 
-def load_dotenv() -> None:
-    """Підтягує змінні з .env у корені репозиторію, не перезаписуючи вже задані."""
-    env = HERE.parent / ".env"
+def load_dotenv(path: str | None = None) -> None:
+    """Підтягує змінні з env-файлу (за замовч. .env у корені репозиторію), не перезаписуючи вже задані."""
+    env = Path(path).expanduser() if path else HERE.parent / ".env"
     if not env.exists():
-        return
+        sys.exit(f"Файл {env} не знайдено")
     for line in env.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -312,7 +312,10 @@ def build_obs(obj: dict, sec: date, cumulative: float, gname: str) -> dict:
 
 
 def cmd_run(args) -> None:
-    load_dotenv()
+    load_dotenv(args.env_file)
+    if args.env_file:  # окремий файл = окремий стан, щоб не мішати з іншими серверами
+        global STATE_FILE
+        STATE_FILE = HERE / f"state.{Path(args.env_file).name.lstrip('.')}.json"
     token = os.environ.get("EARTHDATA_TOKEN")
     if not token and not args.dry_run:
         sys.exit("Задайте EARTHDATA_TOKEN (urs.earthdata.nasa.gov → Generate Token) або запустіть з --dry-run")
@@ -411,6 +414,7 @@ def main() -> None:
     r.add_argument("--since", help="лише спостереження з цієї дати, YYYY-MM-DD")
     r.add_argument("--max-granules", type=int, default=6, help="скільки останніх пар обробляти (за замовч. 6)")
     r.add_argument("--group", help="траєкторія, напр. 28A (за замовч. та, де найбільше пар)")
+    r.add_argument("--env-file", help="окремий env-файл (напр. ~/kora-render.env з API_URL, API_KEY_SATELLITE, EARTHDATA_TOKEN)")
     r.add_argument("--dry-run", action="store_true", help="лише пошук, без читання даних і відправки")
     r.add_argument("--no-post", action="store_true", help="обчислити, але не відправляти в бекенд")
     r.add_argument("--download", action="store_true", help="повністю завантажувати файли (~2,4 ГБ) замість range-запитів")

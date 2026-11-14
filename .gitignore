@@ -12,3 +12,4 @@ firmware/**/secrets.h
 
 nisar/state.json
 nisar/cache/
+nisar/state.*.json

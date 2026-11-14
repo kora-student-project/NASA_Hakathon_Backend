@@ -24,6 +24,8 @@ pip install -r nisar/requirements.txt      # окремо від бекенду
    python nisar/fetch_nisar.py run --max-granules 4
    ```
 
+**Відправка на Render окремо від локального:** покладіть `API_URL`, `API_KEY_SATELLITE`, `EARTHDATA_TOKEN` в окремий файл, напр. `~/kora-render.env`, і запускайте `python nisar/fetch_nisar.py run --env-file ~/kora-render.env`. Стан зберігається окремо (`state.<файл>.json`), тож локальні й серверні відправки не плутаються.
+
 Корисні опції: `--object-id N`, `--since 2026-09-01`, `--group 28A` (траєкторія), `--no-post` (порахувати без відправки), `--download` (повністю завантажувати файли, якщо віддалене читання не працює), `inspect файл.h5` (показати структуру HDF5).
 
 ## Що відбувається
