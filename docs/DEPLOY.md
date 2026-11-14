@@ -50,7 +50,7 @@ Render → `kora-backend` → Environment → `CORS_ORIGINS` = адреса Verc
 ## 5. Пристрій
 
 1. Зареєструйте пристрій (Swagger `/docs` → **Authorize** з admin-ключем → `POST /api/sensors` із `device_id`, напр. `kora_tracker_01`).
-2. Пристрій шле JSON на `POST https://<сервіс>.onrender.com/api/sensors/telemetry` із заголовком `X-API-Key: <API_KEY_DEVICE>`.
+2. Пристрій шле JSON на `POST https://<сервіс>.onrender.com/api/sensors/data` із заголовком `X-API-Key: <API_KEY_DEVICE>`.
 
 ## Що передати назад (не секрети)
 

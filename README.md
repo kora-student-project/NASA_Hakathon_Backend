@@ -73,8 +73,7 @@ API_URL=http://localhost:8000 API_KEY_ADMIN=... API_KEY_DEVICE=... API_KEY_SATEL
 | GET | `/api/objects/{id}/status` | загальний стан: `UNKNOWN`/`NORMAL`/`WARNING`/`CRITICAL` |
 | POST | `/api/sensors` | зареєструвати датчик (admin) |
 | GET | `/api/sensors?object_id=`, `/api/sensors/{id}` | датчики |
-| POST | `/api/sensors/telemetry` | повне повідомлення пристрою `kora_tracker_*` (клімат, IMU, GPS), нахил рахується з акселерометра (device) |
-| POST | `/api/sensors/data` | вимірювання з уже готовим нахилом (device) |
+| POST | `/api/sensors/data` | **єдиний endpoint для пристрою (device)**: приймає повідомлення `kora_tracker_*` (клімат, IMU, GPS; нахил рахується з акселерометра) або готове вимірювання `{sensor_id, tilt_x, tilt_y, ...}` |
 | GET | `/api/sensors/{id}/data?from=&to=&limit=` | історія вимірювань (нові першими) |
 | POST | `/api/satellite/data` | результат аналізу NISAR (satellite) |
 | GET | `/api/satellite/data?object_id=&from=&to=&limit=` | історія спостережень |
@@ -102,7 +101,7 @@ curl -X POST http://localhost:8000/api/sensors -H "X-API-Key: $API_KEY_ADMIN" -H
   -d '{"object_id":1,"name":"Tracker 01","sensor_type":"tilt","device_id":"kora_tracker_01"}'
 ```
 
-Далі пристрій шле свій JSON на `POST /api/sensors/telemetry` (`X-API-Key: <device>`):
+Далі пристрій шле свій JSON на `POST /api/sensors/data` (`X-API-Key: <device>`):
 
 ```json
 {"device_id":"kora_tracker_01","timestamp_ms":1452300,

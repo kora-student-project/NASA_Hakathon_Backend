@@ -45,14 +45,26 @@ async def list_sensors(
 
 @router.post(
     "/data",
-    response_model=MeasurementIngestResult,
+    response_model=TelemetryIngestResult | MeasurementIngestResult,
     status_code=201,
     dependencies=[Depends(require_device)],
 )
 @limiter.limit(get_settings().rate_limit_ingest)
 async def ingest_sensor_data(
-    request: Request, data: MeasurementCreate, db: AsyncSession = Depends(get_db)
+    request: Request, data: DeviceTelemetry | MeasurementCreate, db: AsyncSession = Depends(get_db)
 ):
+    """Єдиний endpoint для пристрою. Приймає два формати тіла:
+
+    1. **Повідомлення пристрою** (`device_id`, `climate`, `imu`, `gps`): нахил рахується з акселерометра,
+       час вимірювання = час отримання (UTC). Пристрій має бути зареєстрований з `device_id`.
+    2. **Готове вимірювання** (`sensor_id`, `tilt_x`, `tilt_y`, `temperature`, `timestamp`).
+    """
+    if isinstance(data, DeviceTelemetry):
+        sensor = await sensor_service.get_sensor_by_device(db, data.device_id)
+        if sensor is None:
+            raise HTTPException(404, f"Device '{data.device_id}' is not registered")
+        return await telemetry_service.ingest_telemetry(db, sensor, data)
+
     sensor = await sensor_service.get_sensor(db, data.sensor_id)
     if sensor is None:
         raise HTTPException(404, f"Sensor {data.sensor_id} not found")
@@ -60,28 +72,6 @@ async def ingest_sensor_data(
         return await sensor_service.ingest_measurement(db, sensor, data)
     except sensor_service.DuplicateMeasurement:
         raise HTTPException(409, "Measurement for this sensor and timestamp already exists")
-
-
-@router.post(
-    "/telemetry",
-    response_model=TelemetryIngestResult,
-    status_code=201,
-    dependencies=[Depends(require_device)],
-)
-@limiter.limit(get_settings().rate_limit_ingest)
-async def ingest_device_telemetry(
-    request: Request, data: DeviceTelemetry, db: AsyncSession = Depends(get_db)
-):
-    """Приймає повне повідомлення пристрою (kora_tracker): клімат, IMU, GPS.
-
-    Нахил рахується з акселерометра. Час вимірювання = час отримання (UTC),
-    бо `timestamp_ms` пристрою — це uptime. Пристрій має бути зареєстрований
-    (`POST /api/sensors` з `device_id`).
-    """
-    sensor = await sensor_service.get_sensor_by_device(db, data.device_id)
-    if sensor is None:
-        raise HTTPException(404, f"Device '{data.device_id}' is not registered")
-    return await telemetry_service.ingest_telemetry(db, sensor, data)
 
 
 @router.get("/{sensor_id}", response_model=SensorRead)

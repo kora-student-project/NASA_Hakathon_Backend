@@ -10,8 +10,7 @@
 
 | Метод | Шлях | Ключ | Призначення |
 |---|---|---|---|
-| POST | `/api/sensors/telemetry` | device | Повний JSON пристрою `kora_tracker_*` (клімат, IMU, GPS) |
-| POST | `/api/sensors/data` | device | Вимірювання з уже готовим нахилом |
+| POST | `/api/sensors/data` | device | **Єдиний endpoint для пристрою.** Приймає повний JSON `kora_tracker_*` (клімат, IMU, GPS) або вимірювання з готовим нахилом |
 | POST | `/api/satellite/data` | satellite | Результат аналізу NISAR |
 | POST | `/api/objects` | admin | Створити об'єкт |
 | POST | `/api/sensors` | admin | Зареєструвати датчик / пристрій |
@@ -39,9 +38,9 @@
 
 ## Тіла запитів
 
-### POST /api/sensors/telemetry (device)
+### POST /api/sensors/data (device): формат пристрою
 
-Пристрій має бути зареєстрований із `device_id`.
+Пристрій має бути зареєстрований із `device_id`. Тіло визначає формат: є `device_id` → формат пристрою, є `sensor_id` → готове вимірювання (нижче).
 
 ```json
 {
@@ -67,7 +66,7 @@
 - Вологість, гіроскоп і GPS зберігаються в полі `extra`. Координати GPS записуються лише при `valid: true`.
 - Акселерометр з усіма нулями → `422`.
 
-### POST /api/sensors/data (device)
+### POST /api/sensors/data (device): готове вимірювання
 
 ```json
 {"sensor_id": 1, "tilt_x": 1.25, "tilt_y": -0.42, "temperature": 24.5, "timestamp": "2026-11-14T12:30:00Z"}
