@@ -300,6 +300,17 @@ def cmd_inspect(args) -> None:
         h5.visititems(show)
 
 
+def build_obs(obj: dict, sec: date, cumulative: float, gname: str) -> dict:
+    return {
+        "object_id": obj["id"],
+        "displacement": round(cumulative, 2),
+        "unit": "mm",
+        "observation_date": sec.isoformat(),
+        "geometry": {"type": "Point", "coordinates": [obj["longitude"], obj["latitude"]]},
+        "source": f"NASA NISAR GUNW track {gname}",
+    }
+
+
 def cmd_run(args) -> None:
     load_dotenv()
     token = os.environ.get("EARTHDATA_TOKEN")
@@ -340,9 +351,18 @@ def cmd_run(args) -> None:
             prev_sec = g["sec"]
             if key in state:
                 st = state[key]
-                if "pair_mm" in st:
-                    cumulative += st["pair_mm"]
-                print("вже оброблено" + (f", пара {st['pair_mm']:+.1f} мм" if "pair_mm" in st else f" ({st.get('skipped')})"))
+                if "pair_mm" not in st:
+                    print(f"вже оброблено, пропущено ({st.get('skipped')})")
+                    continue
+                cumulative += st["pair_mm"]
+                print(f"вже обчислено, пара {st['pair_mm']:+.1f} мм, накопичено {cumulative:+.1f} мм", end="")
+                if not st.get("posted") and not args.no_post and not args.dry_run:
+                    res = api_post_observation(build_obs(obj, g["sec"], cumulative, gname))
+                    st["posted"] = True
+                    posted += 1
+                    save_state(state)
+                    print(f"  → відправлено: {res['severity']}", end="")
+                print()
                 continue
             if args.dry_run:
                 print("(dry-run)")
@@ -370,14 +390,7 @@ def cmd_run(args) -> None:
                 "pair_mm": r["displacement_mm"], "ref": str(g["ref"]), "sec": str(g["sec"]), "group": gname,
                 "coherence": r["coherence"], "posted": False,
             }
-            obs = {
-                "object_id": obj["id"],
-                "displacement": round(cumulative, 2),
-                "unit": "mm",
-                "observation_date": g["sec"].isoformat(),
-                "geometry": {"type": "Point", "coordinates": [obj["longitude"], obj["latitude"]]},
-                "source": f"NASA NISAR GUNW track {gname}",
-            }
+            obs = build_obs(obj, g["sec"], cumulative, gname)
             if args.no_post:
                 print("    (без відправки: --no-post)")
             else:
