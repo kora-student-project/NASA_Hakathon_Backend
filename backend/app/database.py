@@ -46,8 +46,13 @@ def _normalize_url(url: str) -> tuple[str, dict]:
         url = "postgresql+asyncpg://" + url[len("postgresql://"):]
     if url.startswith("postgresql+asyncpg://"):
         parts = urlsplit(url)
-        query = [(k, v) for k, v in parse_qsl(parts.query) if k != "sslmode"]
+        params = dict(parse_qsl(parts.query))
+        sslmode = params.get("sslmode")
+        # asyncpg не розуміє sslmode/channel_binding з рядків Neon/Supabase — переводимо в connect_args
+        query = [(k, v) for k, v in params.items() if k not in ("sslmode", "channel_binding")]
         url = urlunsplit(parts._replace(query=urlencode(query)))
+        if sslmode in ("require", "verify-ca", "verify-full"):
+            connect_args["ssl"] = "require"
         # Supabase pooler (pgbouncer, transaction mode) не підтримує prepared statements
         connect_args["statement_cache_size"] = 0
     return url, connect_args

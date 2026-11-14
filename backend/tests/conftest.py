@@ -21,9 +21,16 @@ async def client():
     # Одна in-memory БД на тест
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False}
-    )
+    pg = os.environ.get("TEST_DATABASE_URL")  # напр. postgresql://kora:kora_dev_password@localhost:5432/kora
+    if pg:
+        from sqlalchemy.pool import NullPool
+
+        url, args = database._normalize_url(pg)
+        engine = create_async_engine(url, connect_args=args, poolclass=NullPool)
+    else:
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False}
+        )
     database.engine = engine
     database.SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -35,6 +42,8 @@ async def client():
     from app import models  # noqa: F401
 
     async with engine.begin() as conn:
+        if pg:
+            await conn.run_sync(database.Base.metadata.drop_all)
         await conn.run_sync(database.Base.metadata.create_all)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c

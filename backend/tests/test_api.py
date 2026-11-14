@@ -125,3 +125,8 @@ async def test_cors_and_body_limit(client):
     assert r.headers.get("access-control-allow-origin") == "http://localhost:5173"
     r = await client.post("/api/objects", content=b"x" * 70000, headers={**ADMIN, "Content-Type": "application/json"})
     assert r.status_code == 413
+
+
+async def test_thresholds_endpoint(client):
+    r = (await client.get("/api/thresholds")).json()
+    assert r["tilt_warning"] < r["tilt_critical"] and r["displacement_warning_mm"] < r["displacement_critical_mm"]

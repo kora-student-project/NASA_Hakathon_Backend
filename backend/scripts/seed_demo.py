@@ -51,6 +51,6 @@ for name, desc, lat, lon, amp in objects:
     post("/api/satellite/data", SAT, {
         "object_id": o["id"], "displacement": disp, "unit": "mm",
         "observation_date": (now - timedelta(days=4)).date().isoformat(),
-        "geometry": {"type": "Point", "coordinates": [lon, lat]}, "source": "NASA NISAR",
+        "geometry": {"type": "Point", "coordinates": [lon, lat]}, "source": "DEMO (simulated)",
     })
 print("Готово")

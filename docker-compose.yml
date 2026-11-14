@@ -1,0 +1,14 @@
+# Локальний Postgres для розробки: docker compose up -d
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kora
+      POSTGRES_PASSWORD: kora_dev_password
+      POSTGRES_DB: kora
+    ports:
+      - "5432:5432"
+    volumes:
+      - kora_pgdata:/var/lib/postgresql/data
+volumes:
+  kora_pgdata:

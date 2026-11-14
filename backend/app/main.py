@@ -7,7 +7,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from app.api import alerts, objects, satellite, sensors
+from app.api import alerts, meta, objects, satellite, sensors
 from app.config import get_settings
 from app.database import init_db
 from app.ratelimit import limiter
@@ -54,6 +54,7 @@ app.include_router(objects.router)
 app.include_router(sensors.router)
 app.include_router(satellite.router)
 app.include_router(alerts.router)
+app.include_router(meta.router)
 
 
 @app.get("/health", tags=["meta"])
