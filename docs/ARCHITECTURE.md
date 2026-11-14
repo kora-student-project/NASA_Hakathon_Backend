@@ -7,7 +7,7 @@ flowchart LR
     API["FastAPI Backend"] --> DB[("PostgreSQL")]
     API --> ALERT["Перевірка порогів<br/>WARNING / CRITICAL"]
     ALERT --> DB
-    API -- "REST (GET)" --> UI["React Dashboard<br/>карта + графіки + alerts"]
+    API -- "REST (GET)" --> UI["React Dashboard (окремий репозиторій)<br/>карта + графіки + alerts"]
 ```
 
 ## Принципи

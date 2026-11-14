@@ -5,7 +5,6 @@
 ## 1. Підготовка
 
 ```bash
-cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env     # впишіть три ключі (команда генерації — у .env.example)
@@ -14,15 +13,16 @@ cp .env.example .env     # впишіть три ключі (команда ге
 Postgres у Docker (необов'язково, інакше буде SQLite):
 
 ```bash
-docker compose up -d     # з кореня репозиторію
-# у backend/.env: DATABASE_URL=postgresql://kora:kora_dev_password@localhost:5432/kora
+docker compose up -d
+# у .env: DATABASE_URL=postgresql://kora:kora_dev_password@localhost:5432/kora
 ```
 
 ## 2. Запуск
 
 ```bash
-cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000     # термінал 1
-cd frontend && cp .env.example .env && npm install && npm run dev   # термінал 2
+uvicorn app.main:app --host 0.0.0.0 --port 8000     # термінал 1 (цей репозиторій)
+# термінал 2: клонуйте NASA_Hakathon_Frontend, там:
+#   cp .env.example .env && npm install && npm run dev
 ```
 
 `--host 0.0.0.0` потрібен, щоб ESP32 бачив бекенд у локальній мережі.
@@ -31,7 +31,7 @@ cd frontend && cp .env.example .env && npm install && npm run dev   # термі
 ## 3. Демо-дані
 
 ```bash
-cd backend && set -a && . ./.env && set +a
+set -a && . ./.env && set +a
 RATE_LIMIT_ENABLED=false uvicorn app.main:app --port 8000 &    # seed робить ~150 запитів, ліміт 60/хв його зупинить
 API_URL=http://localhost:8000 python scripts/seed_demo.py
 ```
