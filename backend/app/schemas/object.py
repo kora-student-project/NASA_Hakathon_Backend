@@ -36,6 +36,7 @@ class LatestSensorData(BaseModel):
     tilt_x: float
     tilt_y: float
     temperature: float | None = None
+    humidity: float | None = None
     timestamp: datetime
 
 

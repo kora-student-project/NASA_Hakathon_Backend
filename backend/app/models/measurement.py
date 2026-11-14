@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Float, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import JSON, Float, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, UTCDateTime
@@ -19,3 +19,5 @@ class Measurement(Base):
     tilt_y: Mapped[float] = mapped_column(Float)
     temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(UTCDateTime)
+    # Додаткові дані пристрою: вологість, акселерометр, гіроскоп, GPS
+    extra: Mapped[dict | None] = mapped_column(JSON, nullable=True)

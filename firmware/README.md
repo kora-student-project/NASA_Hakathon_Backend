@@ -1,5 +1,7 @@
 # Прошивка ESP32
 
+> Пристрій команди (`kora_tracker_*`, з GPS і вологістю) шле інший формат JSON на `POST /api/sensors/telemetry`: див. `backend/README.md`. Скетч нижче це приклад для простого формату `POST /api/sensors/data`.
+
 `kora_esp32/` — скетч Arduino (ESP32 Dev Module), читає MPU6050 по I2C, рахує нахил X/Y, час бере через NTP, шле `POST /api/sensors/data`.
 
 1. `cp kora_esp32/secrets.h.example kora_esp32/secrets.h` і заповніть.

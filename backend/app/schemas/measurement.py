@@ -33,6 +33,7 @@ class MeasurementRead(BaseModel):
     tilt_y: float
     temperature: float | None
     timestamp: datetime
+    extra: dict | None
 
 
 class MeasurementIngestResult(BaseModel):

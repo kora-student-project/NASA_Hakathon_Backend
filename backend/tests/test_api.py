@@ -130,3 +130,51 @@ async def test_cors_and_body_limit(client):
 async def test_thresholds_endpoint(client):
     r = (await client.get("/api/thresholds")).json()
     assert r["tilt_warning"] < r["tilt_critical"] and r["displacement_warning_mm"] < r["displacement_critical_mm"]
+
+
+SAMPLE = {
+    "device_id": "kora_tracker_01", "timestamp_ms": 1452300,
+    "climate": {"temperature": 22.5, "humidity": 55.0},
+    "imu": {"accel": {"x": 0.05, "y": 9.81, "z": -0.12}, "gyro": {"x": 0.01, "y": -0.0, "z": 0.03}},
+    "gps": {"lat": 49.839683, "lng": 24.029717, "sats": 8, "time": "14:25:30", "valid": True},
+}
+
+
+async def make_device(client, device_id="kora_tracker_01"):
+    o = (await client.post("/api/objects", json={"name": "O", "latitude": 49.8, "longitude": 24}, headers=ADMIN)).json()
+    s = await client.post("/api/sensors", json={"object_id": o["id"], "name": "tracker", "sensor_type": "tilt", "device_id": device_id}, headers=ADMIN)
+    return o, s
+
+
+async def test_telemetry_sample_payload(client):
+    o, s = await make_device(client)
+    assert s.status_code == 201 and s.json()["device_id"] == "kora_tracker_01"
+    r = await client.post("/api/sensors/telemetry", json=SAMPLE, headers=DEVICE)
+    assert r.status_code == 201, r.text
+    j = r.json()
+    assert j["severity"] == "NORMAL" and abs(j["tilt_x"]) < 0.5 and abs(j["tilt_y"]) < 1.0
+    h = (await client.get(f"/api/sensors/{s.json()['id']}/data")).json()[0]
+    assert h["temperature"] == 22.5 and h["extra"]["humidity"] == 55.0 and h["extra"]["gps"]["valid"] is True
+    st = (await client.get(f"/api/objects/{o['id']}/status")).json()
+    assert st["latest_sensor_data"]["humidity"] == 55.0 and st["status"] == "NORMAL"
+
+
+async def test_telemetry_tilt_alert_and_gps_invalid(client):
+    o, s = await make_device(client)
+    tilted = {**SAMPLE, "imu": {"accel": {"x": 9.81 * 0.1, "y": 9.81, "z": 0}}, "gps": {"valid": False, "lat": 1.0, "lng": 2.0}}
+    r = (await client.post("/api/sensors/telemetry", json=tilted, headers=DEVICE)).json()
+    # atan2(0.981, 9.81) ~ 5.7 deg -> CRITICAL
+    assert r["severity"] == "CRITICAL" and r["alert_created"]
+    h = (await client.get(f"/api/sensors/{s.json()['id']}/data")).json()[0]
+    assert h["extra"]["gps"]["lat"] is None
+
+
+async def test_telemetry_errors(client):
+    assert (await client.post("/api/sensors/telemetry", json=SAMPLE, headers=DEVICE)).status_code == 404
+    assert (await client.post("/api/sensors/telemetry", json=SAMPLE)).status_code == 401
+    await make_device(client)
+    assert (await client.post("/api/sensors/telemetry", json={**SAMPLE, "imu": {"accel": {"x": 0, "y": 0, "z": 0}}}, headers=DEVICE)).status_code == 422
+    assert (await client.post("/api/sensors/telemetry", json={**SAMPLE, "climate": {"humidity": 500}}, headers=DEVICE)).status_code == 422
+    assert (await client.post("/api/sensors/telemetry", json={"device_id": "x"}, headers=DEVICE)).status_code == 422
+    dup = await client.post("/api/sensors", json={"object_id": 1, "name": "t2", "sensor_type": "tilt", "device_id": "kora_tracker_01"}, headers=ADMIN)
+    assert dup.status_code == 409

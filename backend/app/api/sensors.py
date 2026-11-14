@@ -10,6 +10,8 @@ from app.ratelimit import limiter
 from app.config import get_settings
 from app.schemas.measurement import MeasurementCreate, MeasurementIngestResult, MeasurementRead
 from app.schemas.sensor import SensorCreate, SensorRead
+from app.schemas.telemetry import DeviceTelemetry, TelemetryIngestResult
+from app.services import telemetry_service
 from app.security import require_admin, require_device
 from app.services import sensor_service
 
@@ -20,6 +22,8 @@ router = APIRouter(prefix="/api/sensors", tags=["sensors"])
 async def register_sensor(request: Request, data: SensorCreate, db: AsyncSession = Depends(get_db)):
     if await db.get(MonitoredObject, data.object_id) is None:
         raise HTTPException(404, f"Object {data.object_id} not found")
+    if data.device_id and await sensor_service.get_sensor_by_device(db, data.device_id):
+        raise HTTPException(409, f"Device '{data.device_id}' is already registered")
     sensor = Sensor(**data.model_dump())
     db.add(sensor)
     await db.commit()
@@ -56,6 +60,28 @@ async def ingest_sensor_data(
         return await sensor_service.ingest_measurement(db, sensor, data)
     except sensor_service.DuplicateMeasurement:
         raise HTTPException(409, "Measurement for this sensor and timestamp already exists")
+
+
+@router.post(
+    "/telemetry",
+    response_model=TelemetryIngestResult,
+    status_code=201,
+    dependencies=[Depends(require_device)],
+)
+@limiter.limit(get_settings().rate_limit_ingest)
+async def ingest_device_telemetry(
+    request: Request, data: DeviceTelemetry, db: AsyncSession = Depends(get_db)
+):
+    """Приймає повне повідомлення пристрою (kora_tracker): клімат, IMU, GPS.
+
+    Нахил рахується з акселерометра. Час вимірювання = час отримання (UTC),
+    бо `timestamp_ms` пристрою — це uptime. Пристрій має бути зареєстрований
+    (`POST /api/sensors` з `device_id`).
+    """
+    sensor = await sensor_service.get_sensor_by_device(db, data.device_id)
+    if sensor is None:
+        raise HTTPException(404, f"Device '{data.device_id}' is not registered")
+    return await telemetry_service.ingest_telemetry(db, sensor, data)
 
 
 @router.get("/{sensor_id}", response_model=SensorRead)

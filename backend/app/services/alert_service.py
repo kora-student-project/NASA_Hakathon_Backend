@@ -136,6 +136,7 @@ async def compute_object_status(db: AsyncSession, obj: MonitoredObject) -> Objec
             tilt_x=latest_m.tilt_x,
             tilt_y=latest_m.tilt_y,
             temperature=latest_m.temperature,
+            humidity=(latest_m.extra or {}).get("humidity"),
             timestamp=latest_m.timestamp,
         )
         if latest_m

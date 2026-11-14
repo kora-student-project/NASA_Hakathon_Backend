@@ -29,7 +29,7 @@ uvicorn app.main:app --reload
 
 Swagger: <http://localhost:8000/docs> (кнопка **Authorize** → ключ у `X-API-Key`).
 
-Без `DATABASE_URL` використовується локальний SQLite (`kora.db`). Таблиці створюються автоматично при старті.
+Без `DATABASE_URL` використовується локальний SQLite (`kora.db`). Таблиці створюються автоматично при старті. Міграцій немає: при зміні схеми на існуючій БД потрібно її очистити (`docker compose down -v` для локального Postgres, видалити `kora.db` для SQLite).
 
 ## База даних
 
@@ -72,7 +72,8 @@ API_URL=http://localhost:8000 API_KEY_ADMIN=... API_KEY_DEVICE=... API_KEY_SATEL
 | GET | `/api/objects/{id}/status` | загальний стан: `UNKNOWN`/`NORMAL`/`WARNING`/`CRITICAL` |
 | POST | `/api/sensors` | зареєструвати датчик (admin) |
 | GET | `/api/sensors?object_id=`, `/api/sensors/{id}` | датчики |
-| POST | `/api/sensors/data` | вимірювання від ESP32 (device) |
+| POST | `/api/sensors/telemetry` | повне повідомлення пристрою `kora_tracker_*` (клімат, IMU, GPS), нахил рахується з акселерометра (device) |
+| POST | `/api/sensors/data` | вимірювання з уже готовим нахилом (device) |
 | GET | `/api/sensors/{id}/data?from=&to=&limit=` | історія вимірювань (нові першими) |
 | POST | `/api/satellite/data` | результат аналізу NISAR (satellite) |
 | GET | `/api/satellite/data?object_id=&from=&to=&limit=` | історія спостережень |
@@ -90,6 +91,29 @@ curl -X POST http://localhost:8000/api/sensors/data \
 ```
 
 Відповідь: `{"status":"stored","measurement_id":1,"severity":"NORMAL","alert_id":null,"alert_created":false}`.
+
+### Приклад: повідомлення пристрою (telemetry)
+
+Пристрій має бути зареєстрований із `device_id`:
+
+```bash
+curl -X POST http://localhost:8000/api/sensors -H "X-API-Key: $API_KEY_ADMIN" -H "Content-Type: application/json" \
+  -d '{"object_id":1,"name":"Tracker 01","sensor_type":"tilt","device_id":"kora_tracker_01"}'
+```
+
+Далі пристрій шле свій JSON на `POST /api/sensors/telemetry` (`X-API-Key: <device>`):
+
+```json
+{"device_id":"kora_tracker_01","timestamp_ms":1452300,
+ "climate":{"temperature":22.5,"humidity":55.0},
+ "imu":{"accel":{"x":0.05,"y":9.81,"z":-0.12},"gyro":{"x":0.01,"y":-0.0,"z":0.03}},
+ "gps":{"lat":49.839683,"lng":24.029717,"sats":8,"time":"14:25:30","valid":true}}
+```
+
+- Нахил: `tilt_x`, `tilt_y` рахуються з акселерометра по двох горизонтальних осях. Вертикальна вісь задається `DEVICE_VERTICAL_AXIS` (за замовчуванням `y`, бо у спокої `y ≈ 9.81`). Якщо плата змонтована інакше, змініть значення.
+- Час вимірювання = час отримання на сервері (UTC), бо `timestamp_ms` це uptime пристрою, а `gps.time` без дати. `timestamp_ms` зберігається в `extra`.
+- Вологість, гіроскоп і GPS зберігаються в полі `extra` вимірювання. Координати GPS записуються лише при `valid: true`.
+- Невідомий `device_id` → `404`. Датчик із таким `device_id` вже є → `409`.
 
 ### Приклад: супутникові дані
 

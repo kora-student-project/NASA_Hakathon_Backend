@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # CORS: список через кому, або "*"
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
+    # Яка вісь акселерометра вертикальна (дивиться вздовж гравітації, ≈9.81 м/с² у спокої).
+    # tilt_x/tilt_y рахуються по двох інших осях за порядком x, y, z.
+    device_vertical_axis: str = "y"
+
     # Пороги нахилу (градуси, по модулю)
     tilt_warning_threshold: float = 2.0
     tilt_critical_threshold: float = 5.0

@@ -12,9 +12,9 @@ class DuplicateMeasurement(Exception):
 
 
 async def ingest_measurement(
-    db: AsyncSession, sensor: Sensor, data: MeasurementCreate
+    db: AsyncSession, sensor: Sensor, data: MeasurementCreate, extra: dict | None = None
 ) -> MeasurementIngestResult:
-    m = Measurement(**data.model_dump())
+    m = Measurement(**data.model_dump(), extra=extra)
     db.add(m)
     try:
         await db.flush()
@@ -33,3 +33,9 @@ async def ingest_measurement(
 
 async def get_sensor(db: AsyncSession, sensor_id: int) -> Sensor | None:
     return (await db.execute(select(Sensor).where(Sensor.id == sensor_id))).scalar_one_or_none()
+
+
+async def get_sensor_by_device(db: AsyncSession, device_id: str) -> Sensor | None:
+    return (
+        await db.execute(select(Sensor).where(Sensor.device_id == device_id))
+    ).scalar_one_or_none()
