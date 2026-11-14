@@ -92,7 +92,7 @@ curl -X POST http://localhost:8000/api/sensors/data \
 
 Відповідь: `{"status":"stored","measurement_id":1,"severity":"NORMAL","alert_id":null,"alert_created":false}`.
 
-### Приклад: повідомлення пристрою (telemetry)
+### Приклад: повідомлення пристрою (формат пристрою)
 
 Пристрій має бути зареєстрований із `device_id`:
 

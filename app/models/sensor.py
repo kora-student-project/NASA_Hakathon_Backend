@@ -14,6 +14,6 @@ class Sensor(Base):
     object_id: Mapped[int] = mapped_column(ForeignKey("objects.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(255))
     sensor_type: Mapped[str] = mapped_column(String(100))
-    # Ідентифікатор фізичного пристрою (напр. "kora_tracker_01") для /api/sensors/telemetry
+    # Ідентифікатор фізичного пристрою (напр. "kora_tracker_01") для POST /api/sensors/data
     device_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
