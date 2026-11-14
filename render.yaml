@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: kora-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: DATABASE_URL # connection string Postgres (напр. Neon), вводиться в Render
+        sync: false
+      - key: CORS_ORIGINS # адреса фронтенду на Vercel, вводиться після його деплою
+        sync: false
+      - key: API_KEY_ADMIN
+        generateValue: true
+      - key: API_KEY_DEVICE
+        generateValue: true
+      - key: API_KEY_SATELLITE
+        generateValue: true
