@@ -13,7 +13,6 @@ class Settings(BaseSettings):
 
     # API-ключі (заголовок X-API-Key). Порожнє значення = запис відхиляється.
     api_key_admin: str = ""  # створення об'єктів/датчиків, закриття алертів
-    api_key_device: str = ""  # ESP32 -> POST /api/sensors/data
     api_key_satellite: str = ""  # NISAR-модуль -> POST /api/satellite/data
 
     # CORS: список через кому, або "*"
@@ -35,6 +34,8 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_ingest: str = "60/minute"
     rate_limit_default: str = "120/minute"
+    # Скільки вимірювань на хвилину приймається від ОДНОГО пристрою (вище → 429)
+    device_max_per_minute: int = 30
     max_body_bytes: int = 64 * 1024
     max_future_skew_seconds: int = 86400  # допуск на зсув годинника ESP32: не далі ніж на добу в майбутнє
 

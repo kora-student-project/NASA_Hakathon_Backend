@@ -16,7 +16,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Згенеруйте ключі й впишіть їх у `.env` (`API_KEY_ADMIN`, `API_KEY_DEVICE`, `API_KEY_SATELLITE`):
+Згенеруйте ключі й впишіть їх у `.env` (`API_KEY_ADMIN`, `API_KEY_SATELLITE`):
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(32))"
@@ -48,7 +48,7 @@ Swagger: <http://localhost:8000/docs> (кнопка **Authorize** → ключ �
 Для презентації можна заповнити працюючий бекенд тестовими об'єктами, вимірюваннями та супутниковими точками:
 
 ```bash
-API_URL=http://localhost:8000 API_KEY_ADMIN=... API_KEY_DEVICE=... API_KEY_SATELLITE=... \
+API_URL=http://localhost:8000 API_KEY_ADMIN=... API_KEY_SATELLITE=... \
   python scripts/seed_demo.py
 ```
 
@@ -59,7 +59,7 @@ API_URL=http://localhost:8000 API_KEY_ADMIN=... API_KEY_DEVICE=... API_KEY_SATEL
 | Ключ | Дозволяє |
 |---|---|
 | `API_KEY_ADMIN` | створення об'єктів/датчиків, закриття алертів, а також усе нижче |
-| `API_KEY_DEVICE` | `POST /api/sensors/data` (ESP32) |
+| ключ пристрою | видається **окремо для кожного пристрою** при реєстрації (`POST /api/sensors`), дозволяє писати лише від імені цього пристрою (див. «Безпека пристроїв») |
 | `API_KEY_SATELLITE` | `POST /api/satellite/data` (NISAR-модуль) |
 
 Якщо ключ не заданий у середовищі — запис відхиляється (503).
@@ -86,7 +86,7 @@ API_URL=http://localhost:8000 API_KEY_ADMIN=... API_KEY_DEVICE=... API_KEY_SATEL
 
 ```bash
 curl -X POST http://localhost:8000/api/sensors/data \
-  -H "X-API-Key: $API_KEY_DEVICE" -H "Content-Type: application/json" \
+  -H "X-API-Key: $DEVICE_KEY" -H "Content-Type: application/json" \
   -d '{"sensor_id":1,"tilt_x":1.25,"tilt_y":-0.42,"temperature":24.5,"timestamp":"2026-11-14T12:30:00Z"}'
 ```
 
@@ -94,7 +94,7 @@ curl -X POST http://localhost:8000/api/sensors/data \
 
 ### Приклад: повідомлення пристрою (формат пристрою)
 
-Пристрій має бути зареєстрований із `device_id`:
+Пристрій має бути зареєстрований із `device_id`. У відповіді буде `api_key`: **він показується один раз**, передайте його пристрою:
 
 ```bash
 curl -X POST http://localhost:8000/api/sensors -H "X-API-Key: $API_KEY_ADMIN" -H "Content-Type: application/json" \
@@ -133,6 +133,18 @@ curl -X POST http://localhost:8000/api/satellite/data \
 - Статус об'єкта: `UNKNOWN`, якщо немає жодних даних (ні датчиків, ні супутника); інакше найвищий рівень серед активних алертів; без алертів — `NORMAL`.
 - Усі пороги налаштовуються через `.env`.
 
+## Безпека пристроїв
+
+Щоб ніхто сторонній не міг слати чи спамити дані від імені пристрою:
+
+- **Персональний ключ на кожен пристрій.** При `POST /api/sensors` бекенд генерує ключ (`kora_...`, 256 біт), показує його один раз, а в базі зберігає лише SHA-256 хеш. Ключ пристрою A не підходить для пристрою B. Загального ключа пристроїв немає: витік одного ключа не відкриває запис для інших.
+- **Невідомий пристрій і хибний ключ дають однакове `401`**, тож перебором не дізнатись, які `device_id` існують.
+- **Відкликання.** `PATCH /api/sensors/{id}` з `{"is_active": false}` вимикає пристрій (`403`). `POST /api/sensors/{id}/rotate-key` видає новий ключ, старий перестає працювати одразу. Обидві дії тільки з admin-ключем.
+- **Ліміт на пристрій:** `DEVICE_MAX_PER_MINUTE` (30 вимірювань/хв) → `429`. Додатково загальний ліміт за IP (60/хв на запис).
+- **Перевірка даних:** діапазони (акселерометр ±160 м/с², вологість 0–100, GPS), нульовий акселерометр і неіснуючі поля відхиляються (`422`), `timestamp` не з майбутнього.
+- **HTTPS.** На Render трафік шифрується; ключ не передається у URL, лише в заголовку `X-API-Key`.
+- Читання (`GET`) відкрите для дашборду. Для закритих об'єктів потрібен логін користувачів (не реалізовано).
+
 ## Захист і обмеження
 
 - Pydantic-валідація: діапазони нахилу (±90°), температури, координат; `timestamp` приводиться до UTC і не може бути більш ніж на добу в майбутньому (`MAX_FUTURE_SKEW_SECONDS`).
@@ -152,7 +164,7 @@ pytest
 
 - Build: `pip install -r requirements.txt`
 - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- `DATABASE_URL` підставляється автоматично з безкоштовного Postgres Render (`kora-db`, живе 30 днів). Інші змінні: `API_KEY_ADMIN`, `API_KEY_DEVICE`, `API_KEY_SATELLITE`, `CORS_ORIGINS` (адреса фронтенду на Vercel, без слеша в кінці, наприклад `https://kora.vercel.app`).
+- `DATABASE_URL` підставляється автоматично з безкоштовного Postgres Render (`kora-db`, живе 30 днів). Інші змінні: `API_KEY_ADMIN`, `API_KEY_SATELLITE`, `CORS_ORIGINS` (адреса фронтенду на Vercel, без слеша в кінці, наприклад `https://kora.vercel.app`).
 - Free-інстанс «засинає» після простою — перший запит може йти ~30–60 с.
 
 ## Структура репозиторію

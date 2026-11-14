@@ -3,7 +3,6 @@ import os
 os.environ.update(
     DATABASE_URL="sqlite+aiosqlite:///:memory:",
     API_KEY_ADMIN="admin-key",
-    API_KEY_DEVICE="device-key",
     API_KEY_SATELLITE="sat-key",
     RATE_LIMIT_ENABLED="false",
 )

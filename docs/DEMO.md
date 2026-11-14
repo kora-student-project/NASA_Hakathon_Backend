@@ -41,7 +41,7 @@ API_URL=http://localhost:8000 python scripts/seed_demo.py
 ## 4. Живий ESP32
 
 1. Дізнайтесь IP ноутбука (`ipconfig getifaddr en0`).
-2. `firmware/kora_esp32/secrets.h.example` → `secrets.h`; впишіть Wi-Fi, `http://<IP>:8000`, `API_KEY_DEVICE`, `SENSOR_ID`.
+2. `firmware/kora_esp32/secrets.h.example` → `secrets.h`; впишіть Wi-Fi, `http://<IP>:8000`, `API_KEY_DEVICE` (це персональний ключ пристрою з відповіді `POST /api/sensors`), `SENSOR_ID`.
 3. Створіть датчик (`POST /api/sensors` у Swagger з admin-ключем) і візьміть його `id`.
 4. Прошийте, відкрийте Serial Monitor (115200). Нахиліть плату — на графіку з'явиться рух, при > 2° з'явиться WARNING.
 

@@ -16,4 +16,15 @@ class SensorRead(SensorCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    is_active: bool = True
     created_at: datetime
+
+
+class SensorCreated(SensorRead):
+    """Відповідь на реєстрацію: персональний ключ пристрою показується ЛИШЕ ОДИН РАЗ."""
+
+    api_key: str
+
+
+class SensorUpdate(BaseModel):
+    is_active: bool

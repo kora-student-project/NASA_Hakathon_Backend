@@ -1,7 +1,6 @@
 import pytest
 
 ADMIN = {"X-API-Key": "admin-key"}
-DEVICE = {"X-API-Key": "device-key"}
 SAT = {"X-API-Key": "sat-key"}
 
 
@@ -9,6 +8,11 @@ async def make_object_and_sensor(client):
     o = (await client.post("/api/objects", json={"name": "Lviv bldg", "latitude": 49.84, "longitude": 24.0}, headers=ADMIN)).json()
     s = (await client.post("/api/sensors", json={"object_id": o["id"], "name": "esp32-1", "sensor_type": "tilt"}, headers=ADMIN)).json()
     return o, s
+
+
+def DEV(sensor):
+    """Заголовки з персональним ключем датчика."""
+    return {"X-API-Key": sensor["api_key"]}
 
 
 def reading(sensor_id, x=0.1, ts="2026-11-01T12:30:00Z", **kw):
@@ -23,14 +27,16 @@ async def test_health_and_docs(client):
 async def test_write_requires_key(client):
     body = {"name": "x", "latitude": 1, "longitude": 1}
     assert (await client.post("/api/objects", json=body)).status_code == 401
-    assert (await client.post("/api/objects", json=body, headers=DEVICE)).status_code == 401
+    assert (await client.post("/api/objects", json=body, headers={"X-API-Key": "wrong"})).status_code == 401
     assert (await client.post("/api/objects", json=body, headers=ADMIN)).status_code == 201
 
 
 async def test_device_key_scope(client):
     o, s = await make_object_and_sensor(client)
-    assert (await client.post("/api/satellite/data", headers=DEVICE, json={})).status_code == 401
+    assert (await client.post("/api/satellite/data", headers=DEV(s), json={})).status_code == 401
     assert (await client.post("/api/sensors/data", headers=SAT, json=reading(s["id"]))).status_code == 401
+    # ключ пристрою не дозволяє адмін-дій
+    assert (await client.post("/api/objects", headers=DEV(s), json={"name": "x", "latitude": 1, "longitude": 1})).status_code == 401
 
 
 async def test_status_unknown_without_data(client):
@@ -41,7 +47,7 @@ async def test_status_unknown_without_data(client):
 
 async def test_ingest_normal_then_status(client):
     o, s = await make_object_and_sensor(client)
-    r = await client.post("/api/sensors/data", json=reading(s["id"]), headers=DEVICE)
+    r = await client.post("/api/sensors/data", json=reading(s["id"]), headers=DEV(s))
     assert r.status_code == 201 and r.json()["severity"] == "NORMAL" and r.json()["alert_id"] is None
     st = (await client.get(f"/api/objects/{o['id']}/status")).json()
     assert st["status"] == "NORMAL"
@@ -50,12 +56,12 @@ async def test_ingest_normal_then_status(client):
 
 async def test_warning_and_critical_alerts(client):
     o, s = await make_object_and_sensor(client)
-    r = (await client.post("/api/sensors/data", json=reading(s["id"], x=3.0), headers=DEVICE)).json()
+    r = (await client.post("/api/sensors/data", json=reading(s["id"], x=3.0), headers=DEV(s))).json()
     assert r["severity"] == "WARNING" and r["alert_created"]
     # такий самий активний alert не дублюється
-    r2 = (await client.post("/api/sensors/data", json=reading(s["id"], x=3.1, ts="2026-11-01T12:31:00Z"), headers=DEVICE)).json()
+    r2 = (await client.post("/api/sensors/data", json=reading(s["id"], x=3.1, ts="2026-11-01T12:31:00Z"), headers=DEV(s))).json()
     assert not r2["alert_created"] and r2["alert_id"] == r["alert_id"]
-    r3 = (await client.post("/api/sensors/data", json=reading(s["id"], x=-6.0, ts="2026-11-01T12:32:00Z"), headers=DEVICE)).json()
+    r3 = (await client.post("/api/sensors/data", json=reading(s["id"], x=-6.0, ts="2026-11-01T12:32:00Z"), headers=DEV(s))).json()
     assert r3["severity"] == "CRITICAL" and r3["alert_created"]
     st = (await client.get(f"/api/objects/{o['id']}/status")).json()
     assert st["status"] == "CRITICAL" and st["active_alerts"] == 2
@@ -67,23 +73,24 @@ async def test_warning_and_critical_alerts(client):
 
 
 async def test_unknown_sensor_and_validation(client):
-    assert (await client.post("/api/sensors/data", json=reading(999), headers=DEVICE)).status_code == 404
     o, s = await make_object_and_sensor(client)
-    assert (await client.post("/api/sensors/data", json=reading(s["id"], x=500), headers=DEVICE)).status_code == 422
-    assert (await client.post("/api/sensors/data", json=reading(s["id"], ts="2999-01-01T00:00:00Z"), headers=DEVICE)).status_code == 422
-    assert (await client.post("/api/sensors/data", json={"sensor_id": 1}, headers=DEVICE)).status_code == 422
+    assert (await client.post("/api/sensors/data", json=reading(999), headers=DEV(s))).status_code == 401  # чужий/невідомий sensor_id
+    assert (await client.post("/api/sensors/data", json=reading(999), headers=ADMIN)).status_code == 404
+    assert (await client.post("/api/sensors/data", json=reading(s["id"], x=500), headers=DEV(s))).status_code == 422
+    assert (await client.post("/api/sensors/data", json=reading(s["id"], ts="2999-01-01T00:00:00Z"), headers=DEV(s))).status_code == 422
+    assert (await client.post("/api/sensors/data", json={"sensor_id": 1}, headers=DEV(s))).status_code == 422
 
 
 async def test_duplicate_measurement_409(client):
     o, s = await make_object_and_sensor(client)
-    assert (await client.post("/api/sensors/data", json=reading(s["id"]), headers=DEVICE)).status_code == 201
-    assert (await client.post("/api/sensors/data", json=reading(s["id"]), headers=DEVICE)).status_code == 409
+    assert (await client.post("/api/sensors/data", json=reading(s["id"]), headers=DEV(s))).status_code == 201
+    assert (await client.post("/api/sensors/data", json=reading(s["id"]), headers=DEV(s))).status_code == 409
 
 
 async def test_history_filters(client):
     o, s = await make_object_and_sensor(client)
     for i in range(5):
-        await client.post("/api/sensors/data", json=reading(s["id"], ts=f"2026-11-0{i+1}T10:00:00Z"), headers=DEVICE)
+        await client.post("/api/sensors/data", json=reading(s["id"], ts=f"2026-11-0{i+1}T10:00:00Z"), headers=DEV(s))
     url = f"/api/sensors/{s['id']}/data"
     assert len((await client.get(url)).json()) == 5
     assert len((await client.get(url, params={"limit": 2})).json()) == 2
@@ -149,7 +156,7 @@ async def make_device(client, device_id="kora_tracker_01"):
 async def test_telemetry_sample_payload(client):
     o, s = await make_device(client)
     assert s.status_code == 201 and s.json()["device_id"] == "kora_tracker_01"
-    r = await client.post("/api/sensors/data", json=SAMPLE, headers=DEVICE)
+    r = await client.post("/api/sensors/data", json=SAMPLE, headers=DEV(s.json()))
     assert r.status_code == 201, r.text
     j = r.json()
     assert j["severity"] == "NORMAL" and abs(j["tilt_x"]) < 0.5 and abs(j["tilt_y"]) < 1.0
@@ -162,7 +169,7 @@ async def test_telemetry_sample_payload(client):
 async def test_telemetry_tilt_alert_and_gps_invalid(client):
     o, s = await make_device(client)
     tilted = {**SAMPLE, "imu": {"accel": {"x": 9.81 * 0.1, "y": 9.81, "z": 0}}, "gps": {"valid": False, "lat": 1.0, "lng": 2.0}}
-    r = (await client.post("/api/sensors/data", json=tilted, headers=DEVICE)).json()
+    r = (await client.post("/api/sensors/data", json=tilted, headers=DEV(s.json()))).json()
     # atan2(0.981, 9.81) ~ 5.7 deg -> CRITICAL
     assert r["severity"] == "CRITICAL" and r["alert_created"]
     h = (await client.get(f"/api/sensors/{s.json()['id']}/data")).json()[0]
@@ -170,11 +177,62 @@ async def test_telemetry_tilt_alert_and_gps_invalid(client):
 
 
 async def test_telemetry_errors(client):
-    assert (await client.post("/api/sensors/data", json=SAMPLE, headers=DEVICE)).status_code == 404
+    # невідомий device_id без ключа і з ключем: однаково 401 (не розкриваємо, що є в системі)
     assert (await client.post("/api/sensors/data", json=SAMPLE)).status_code == 401
-    await make_device(client)
-    assert (await client.post("/api/sensors/data", json={**SAMPLE, "imu": {"accel": {"x": 0, "y": 0, "z": 0}}}, headers=DEVICE)).status_code == 422
-    assert (await client.post("/api/sensors/data", json={**SAMPLE, "climate": {"humidity": 500}}, headers=DEVICE)).status_code == 422
-    assert (await client.post("/api/sensors/data", json={"device_id": "x"}, headers=DEVICE)).status_code == 422
-    dup = await client.post("/api/sensors", json={"object_id": 1, "name": "t2", "sensor_type": "tilt", "device_id": "kora_tracker_01"}, headers=ADMIN)
+    assert (await client.post("/api/sensors/data", json=SAMPLE, headers={"X-API-Key": "kora_nope"})).status_code == 401
+    assert (await client.post("/api/sensors/data", json=SAMPLE, headers=ADMIN)).status_code == 404
+    o, s = await make_device(client)
+    k = DEV(s.json())
+    assert (await client.post("/api/sensors/data", json={**SAMPLE, "imu": {"accel": {"x": 0, "y": 0, "z": 0}}}, headers=k)).status_code == 422
+    assert (await client.post("/api/sensors/data", json={**SAMPLE, "imu": {"accel": {"x": 500, "y": 9.8, "z": 0}}}, headers=k)).status_code == 422
+    assert (await client.post("/api/sensors/data", json={**SAMPLE, "climate": {"humidity": 500}}, headers=k)).status_code == 422
+    assert (await client.post("/api/sensors/data", json={"device_id": "x"}, headers=k)).status_code == 422
+    dup = await client.post("/api/sensors", json={"object_id": o["id"], "name": "t2", "sensor_type": "tilt", "device_id": "kora_tracker_01"}, headers=ADMIN)
     assert dup.status_code == 409
+
+
+async def test_device_keys_are_isolated(client):
+    o, a = await make_device(client, "dev_a")
+    b = (await client.post("/api/sensors", json={"object_id": o["id"], "name": "b", "sensor_type": "tilt", "device_id": "dev_b"}, headers=ADMIN)).json()
+    a = a.json()
+    assert (await client.post("/api/sensors/data", json={**SAMPLE, "device_id": "dev_a"}, headers=DEV(a))).status_code == 201
+    # ключ A не підходить для B (і для sensor_id B)
+    assert (await client.post("/api/sensors/data", json={**SAMPLE, "device_id": "dev_b"}, headers=DEV(a))).status_code == 401
+    assert (await client.post("/api/sensors/data", json=reading(b["id"]), headers=DEV(a))).status_code == 401
+    # старий спільний ключ більше не працює
+    assert (await client.post("/api/sensors/data", json={**SAMPLE, "device_id": "dev_b"}, headers={"X-API-Key": "device-key"})).status_code == 401
+    # хеш і ключ не віддаються при читанні
+    got = (await client.get(f"/api/sensors/{a['id']}")).json()
+    assert "api_key" not in got and "api_key_hash" not in got
+
+
+async def test_disable_and_rotate_device(client):
+    o, s = await make_device(client)
+    s = s.json()
+    body = {**SAMPLE}
+    assert (await client.patch(f"/api/sensors/{s['id']}", json={"is_active": False}, headers=ADMIN)).json()["is_active"] is False
+    assert (await client.post("/api/sensors/data", json=body, headers=DEV(s))).status_code == 403
+    assert (await client.patch(f"/api/sensors/{s['id']}", json={"is_active": False}, headers=DEV(s))).status_code == 401
+    await client.patch(f"/api/sensors/{s['id']}", json={"is_active": True}, headers=ADMIN)
+    assert (await client.post("/api/sensors/data", json=body, headers=DEV(s))).status_code == 201
+    new = (await client.post(f"/api/sensors/{s['id']}/rotate-key", headers=ADMIN)).json()
+    assert new["api_key"] != s["api_key"]
+    assert (await client.post("/api/sensors/data", json=body, headers=DEV(s))).status_code == 401
+    assert (await client.post("/api/sensors/data", json=body, headers=DEV(new))).status_code == 201
+
+
+async def test_per_device_rate_limit(client, monkeypatch):
+    from app.config import get_settings
+    from app.security import device_limiter
+
+    monkeypatch.setattr(get_settings(), "rate_limit_enabled", True)
+    monkeypatch.setattr(get_settings(), "device_max_per_minute", 3)
+    device_limiter._hits.clear()
+    o, s = await make_device(client)
+    k = DEV(s.json())
+    codes = [(await client.post("/api/sensors/data", json=SAMPLE, headers=k)).status_code for _ in range(5)]
+    assert codes == [201, 201, 201, 429, 429]
+    # лічильник окремий для кожного пристрою
+    b = (await client.post("/api/sensors", json={"object_id": o["id"], "name": "b", "sensor_type": "tilt", "device_id": "dev_b"}, headers=ADMIN)).json()
+    assert (await client.post("/api/sensors/data", json={**SAMPLE, "device_id": "dev_b"}, headers=DEV(b))).status_code == 201
+    device_limiter._hits.clear()

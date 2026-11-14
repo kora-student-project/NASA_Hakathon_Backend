@@ -17,8 +17,6 @@ services:
         sync: false
       - key: API_KEY_ADMIN
         generateValue: true
-      - key: API_KEY_DEVICE
-        generateValue: true
       - key: API_KEY_SATELLITE
         generateValue: true
 

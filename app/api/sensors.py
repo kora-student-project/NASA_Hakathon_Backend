@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,23 +9,48 @@ from app.models import Measurement, MonitoredObject, Sensor
 from app.ratelimit import limiter
 from app.config import get_settings
 from app.schemas.measurement import MeasurementCreate, MeasurementIngestResult, MeasurementRead
-from app.schemas.sensor import SensorCreate, SensorRead
+from app.schemas.sensor import SensorCreate, SensorCreated, SensorRead, SensorUpdate
 from app.schemas.telemetry import DeviceTelemetry, TelemetryIngestResult
 from app.services import telemetry_service
-from app.security import require_admin, require_device
+from app.security import authorize_device, device_limiter, hash_key, new_device_key, require_admin
 from app.services import sensor_service
 
 router = APIRouter(prefix="/api/sensors", tags=["sensors"])
 
 
-@router.post("", response_model=SensorRead, status_code=201, dependencies=[Depends(require_admin)])
+@router.post("", response_model=SensorCreated, status_code=201, dependencies=[Depends(require_admin)])
 async def register_sensor(request: Request, data: SensorCreate, db: AsyncSession = Depends(get_db)):
+    """Реєструє датчик/пристрій. У відповіді `api_key` показується один раз: передайте його пристрою."""
     if await db.get(MonitoredObject, data.object_id) is None:
         raise HTTPException(404, f"Object {data.object_id} not found")
     if data.device_id and await sensor_service.get_sensor_by_device(db, data.device_id):
         raise HTTPException(409, f"Device '{data.device_id}' is already registered")
-    sensor = Sensor(**data.model_dump())
+    key = new_device_key()
+    sensor = Sensor(**data.model_dump(), api_key_hash=hash_key(key))
     db.add(sensor)
+    await db.commit()
+    return SensorCreated(**SensorRead.model_validate(sensor).model_dump(), api_key=key)
+
+
+@router.post("/{sensor_id}/rotate-key", response_model=SensorCreated, dependencies=[Depends(require_admin)])
+async def rotate_key(request: Request, sensor_id: int, db: AsyncSession = Depends(get_db)):
+    """Видає новий ключ пристрою; старий перестає працювати одразу."""
+    sensor = await sensor_service.get_sensor(db, sensor_id)
+    if sensor is None:
+        raise HTTPException(404, f"Sensor {sensor_id} not found")
+    key = new_device_key()
+    sensor.api_key_hash = hash_key(key)
+    await db.commit()
+    return SensorCreated(**SensorRead.model_validate(sensor).model_dump(), api_key=key)
+
+
+@router.patch("/{sensor_id}", response_model=SensorRead, dependencies=[Depends(require_admin)])
+async def update_sensor(request: Request, sensor_id: int, data: SensorUpdate, db: AsyncSession = Depends(get_db)):
+    """Вмикає/вимикає пристрій (`is_active`). Вимкнений пристрій отримує 403."""
+    sensor = await sensor_service.get_sensor(db, sensor_id)
+    if sensor is None:
+        raise HTTPException(404, f"Sensor {sensor_id} not found")
+    sensor.is_active = data.is_active
     await db.commit()
     return sensor
 
@@ -47,27 +72,33 @@ async def list_sensors(
     "/data",
     response_model=TelemetryIngestResult | MeasurementIngestResult,
     status_code=201,
-    dependencies=[Depends(require_device)],
 )
 @limiter.limit(get_settings().rate_limit_ingest)
 async def ingest_sensor_data(
-    request: Request, data: DeviceTelemetry | MeasurementCreate, db: AsyncSession = Depends(get_db)
+    request: Request,
+    data: DeviceTelemetry | MeasurementCreate,
+    db: AsyncSession = Depends(get_db),
+    x_api_key: str | None = Header(default=None),
 ):
     """Єдиний endpoint для пристрою. Приймає два формати тіла:
 
     1. **Повідомлення пристрою** (`device_id`, `climate`, `imu`, `gps`): нахил рахується з акселерометра,
        час вимірювання = час отримання (UTC). Пристрій має бути зареєстрований з `device_id`.
     2. **Готове вимірювання** (`sensor_id`, `tilt_x`, `tilt_y`, `temperature`, `timestamp`).
+
+    Авторизація: заголовок `X-API-Key` з **персональним ключем цього пристрою** (видається при реєстрації).
+    Ключ одного пристрою не підходить іншому. Ліміт: `DEVICE_MAX_PER_MINUTE` вимірювань/хв на пристрій.
     """
     if isinstance(data, DeviceTelemetry):
         sensor = await sensor_service.get_sensor_by_device(db, data.device_id)
-        if sensor is None:
-            raise HTTPException(404, f"Device '{data.device_id}' is not registered")
+    else:
+        sensor = await sensor_service.get_sensor(db, data.sensor_id)
+    authorize_device(sensor, x_api_key)  # 401/403; admin-ключ теж проходить
+    if sensor is None:  # сюди дійде лише admin
+        raise HTTPException(404, "Device/sensor not found")
+    device_limiter.check(sensor.id)
+    if isinstance(data, DeviceTelemetry):
         return await telemetry_service.ingest_telemetry(db, sensor, data)
-
-    sensor = await sensor_service.get_sensor(db, data.sensor_id)
-    if sensor is None:
-        raise HTTPException(404, f"Sensor {data.sensor_id} not found")
     try:
         return await sensor_service.ingest_measurement(db, sensor, data)
     except sensor_service.DuplicateMeasurement:

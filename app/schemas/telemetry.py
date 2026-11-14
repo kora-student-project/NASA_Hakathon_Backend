@@ -6,9 +6,9 @@ _PATTERN_ID = r"^[A-Za-z0-9_.:-]+$"
 
 
 class Vec3(BaseModel):
-    x: float = Field(allow_inf_nan=False, ge=-2000, le=2000)
-    y: float = Field(allow_inf_nan=False, ge=-2000, le=2000)
-    z: float = Field(allow_inf_nan=False, ge=-2000, le=2000)
+    x: float = Field(allow_inf_nan=False, ge=-160, le=160)  # ±16g у м/с²
+    y: float = Field(allow_inf_nan=False, ge=-160, le=160)
+    z: float = Field(allow_inf_nan=False, ge=-160, le=160)
 
 
 class Climate(BaseModel):

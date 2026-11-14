@@ -1,7 +1,7 @@
 """Заповнює працюючий бекенд демо-даними (об'єкти, датчики, вимірювання, супутник).
 
 Використання:
-    API_URL=http://localhost:8000 API_KEY_ADMIN=... API_KEY_DEVICE=... API_KEY_SATELLITE=... \
+    API_URL=http://localhost:8000 API_KEY_ADMIN=... API_KEY_SATELLITE=... \
         python scripts/seed_demo.py
 """
 import json
@@ -11,7 +11,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 URL = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
-ADMIN, DEVICE, SAT = (os.environ[k] for k in ("API_KEY_ADMIN", "API_KEY_DEVICE", "API_KEY_SATELLITE"))
+ADMIN, SAT = (os.environ[k] for k in ("API_KEY_ADMIN", "API_KEY_SATELLITE"))
 
 
 def post(path: str, key: str, body: dict) -> dict:
@@ -40,7 +40,7 @@ for name, desc, lat, lon, amp in objects:
     for i in range(48):  # 48 вимірювань, раз на 30 хв
         ts = now - timedelta(minutes=30 * (47 - i))
         growth = i / 47
-        post("/api/sensors/data", DEVICE, {
+        post("/api/sensors/data", s["api_key"], {
             "sensor_id": s["id"],
             "tilt_x": round(amp * growth + 0.1 * math.sin(i / 3), 3),
             "tilt_y": round(-0.4 * growth * amp / 3 + 0.05 * math.cos(i / 4), 3),
