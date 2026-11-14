@@ -153,7 +153,7 @@ pytest
 
 - Build: `pip install -r requirements.txt`
 - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Змінні середовища: `DATABASE_URL` (Postgres, наприклад Neon), `API_KEY_ADMIN`, `API_KEY_DEVICE`, `API_KEY_SATELLITE`, `CORS_ORIGINS` (адреса фронтенду на Vercel, без слеша в кінці, наприклад `https://kora.vercel.app`).
+- `DATABASE_URL` підставляється автоматично з безкоштовного Postgres Render (`kora-db`, живе 30 днів). Інші змінні: `API_KEY_ADMIN`, `API_KEY_DEVICE`, `API_KEY_SATELLITE`, `CORS_ORIGINS` (адреса фронтенду на Vercel, без слеша в кінці, наприклад `https://kora.vercel.app`).
 - Free-інстанс «засинає» після простою — перший запит може йти ~30–60 с.
 
 ## Структура репозиторію
