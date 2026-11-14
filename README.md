@@ -181,4 +181,4 @@ app/
 └── services/      # sensor_service, satellite_service, alert_service
 ```
 
-Також у репозиторії: `firmware/` (скетч ESP32), `nisar/` (відправник супутникових даних), `scripts/seed_demo.py`, `docs/` (архітектура, демо), `docker-compose.yml` (локальний Postgres), `render.yaml` (Render blueprint).
+Також у репозиторії: `firmware/` (скетч ESP32), `nisar/` (автоматичне отримання даних NASA NISAR і відправка в API), `scripts/seed_demo.py`, `docs/` (архітектура, демо), `docker-compose.yml` (локальний Postgres), `render.yaml` (Render blueprint).
