@@ -23,7 +23,6 @@ import urllib.error
 import urllib.request
 from datetime import date, timedelta
 
-API_URL = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
 L_BAND_WAVELENGTH_M = 0.238  # NISAR L-діапазон, приблизно 23.8 см
 
 
@@ -36,21 +35,25 @@ def phase_to_los_mm(unwrapped_phase_rad: float, wavelength_m: float = L_BAND_WAV
     return -wavelength_m / (4 * math.pi) * unwrapped_phase_rad * 1000.0
 
 
+def api_url() -> str:
+    return os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
+
+
 def post_observation(obs: dict) -> dict:
     key = os.environ.get("API_KEY_SATELLITE")
     if not key:
         sys.exit("Задайте API_KEY_SATELLITE у середовищі")
     req = urllib.request.Request(
-        f"{API_URL}/api/satellite/data",
+        f"{api_url()}/api/satellite/data",
         data=json.dumps(obs).encode(),
         headers={"Content-Type": "application/json", "X-API-Key": key},
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=90) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        raise SystemExit(f"HTTP {e.code}: {e.read().decode()}")
+        raise SystemExit(f"Бекенд відповів HTTP {e.code}: {e.read().decode()[:300]}")
 
 
 def make_observation(object_id, displacement, obs_date, lon, lat, unit="mm", source="NASA NISAR"):

@@ -23,7 +23,6 @@
 """
 import argparse
 import json
-import math
 import os
 import re
 import sys
@@ -33,9 +32,10 @@ from collections import defaultdict
 from datetime import date, datetime
 from pathlib import Path
 
+from kora_nisar_client import api_url, make_observation, phase_to_los_mm, post_observation
+
 HERE = Path(__file__).resolve().parent
 STATE_FILE = HERE / "state.json"
-L_BAND_WAVELENGTH_M = 0.238
 
 
 # ---------------------------------------------------------------- налаштування
@@ -53,34 +53,12 @@ def load_dotenv(path: str | None = None) -> None:
         os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
-def phase_to_los_mm(phase_rad: float, wavelength_m: float = L_BAND_WAVELENGTH_M) -> float:
-    """d = -λ/(4π)·φ. Знак: додатне значення = рух до супутника (за конвенцією продукту, звірте з документацією)."""
-    return -wavelength_m / (4 * math.pi) * phase_rad * 1000.0
-
-
 # ---------------------------------------------------------------- бекенд API
 
 def api_get(path: str):
-    url = os.environ.get("API_URL", "http://localhost:8000").rstrip("/") + path
+    url = api_url() + path
     with urllib.request.urlopen(url, timeout=90) as r:
         return json.load(r)
-
-
-def api_post_observation(obs: dict) -> dict:
-    key = os.environ.get("API_KEY_SATELLITE")
-    if not key:
-        sys.exit("Задайте API_KEY_SATELLITE")
-    req = urllib.request.Request(
-        os.environ.get("API_URL", "http://localhost:8000").rstrip("/") + "/api/satellite/data",
-        data=json.dumps(obs).encode(),
-        headers={"Content-Type": "application/json", "X-API-Key": key},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=90) as r:
-            return json.load(r)
-    except urllib.error.HTTPError as e:
-        raise SystemExit(f"Бекенд відповів HTTP {e.code}: {e.read().decode()[:300]}")
 
 
 # ---------------------------------------------------------------- стан (що вже оброблено)
@@ -301,14 +279,8 @@ def cmd_inspect(args) -> None:
 
 
 def build_obs(obj: dict, sec: date, cumulative: float, gname: str) -> dict:
-    return {
-        "object_id": obj["id"],
-        "displacement": round(cumulative, 2),
-        "unit": "mm",
-        "observation_date": sec.isoformat(),
-        "geometry": {"type": "Point", "coordinates": [obj["longitude"], obj["latitude"]]},
-        "source": f"NASA NISAR GUNW track {gname}",
-    }
+    return make_observation(obj["id"], round(cumulative, 2), sec.isoformat(), obj["longitude"], obj["latitude"],
+                            source=f"NASA NISAR GUNW track {gname}")
 
 
 def cmd_run(args) -> None:
@@ -360,7 +332,7 @@ def cmd_run(args) -> None:
                 cumulative += st["pair_mm"]
                 print(f"вже обчислено, пара {st['pair_mm']:+.1f} мм, накопичено {cumulative:+.1f} мм", end="")
                 if not st.get("posted") and not args.no_post and not args.dry_run:
-                    res = api_post_observation(build_obs(obj, g["sec"], cumulative, gname))
+                    res = post_observation(build_obs(obj, g["sec"], cumulative, gname))
                     st["posted"] = True
                     posted += 1
                     save_state(state)
@@ -397,7 +369,7 @@ def cmd_run(args) -> None:
             if args.no_post:
                 print("    (без відправки: --no-post)")
             else:
-                res = api_post_observation(obs)
+                res = post_observation(obs)
                 state[key]["posted"] = True
                 posted += 1
                 print(f"    → бекенд: {res['severity']}" + (" (створено попередження)" if res.get("alert_created") else ""))

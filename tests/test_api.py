@@ -1,5 +1,3 @@
-import pytest
-
 ADMIN = {"X-API-Key": "admin-key"}
 SAT = {"X-API-Key": "sat-key"}
 

@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "nisar"))
 import fetch_nisar as fn  # noqa: E402
+from kora_nisar_client import L_BAND_WAVELENGTH_M  # noqa: E402
 
 LON, LAT, EPSG = 24.014, 49.8352, 32635
 
@@ -26,7 +27,7 @@ def make_file(path, bump_mm=-12.5, coherence=0.9, comp_zero_at_point=False):
     phase = np.full((n, n), 1.0)  # фон: константа (опорний зсув)
     iy, ix = int(np.abs(ys - y0).argmin()), int(np.abs(xs - x0).argmin())
     # зміщення -bump_mm у фазі: phi = -4*pi*d/lambda
-    phase[iy - 1 : iy + 2, ix - 1 : ix + 2] += -4 * math.pi * (bump_mm / 1000) / fn.L_BAND_WAVELENGTH_M
+    phase[iy - 1 : iy + 2, ix - 1 : ix + 2] += -4 * math.pi * (bump_mm / 1000) / L_BAND_WAVELENGTH_M
     comp = np.ones((n, n), dtype="uint8")
     if comp_zero_at_point:
         comp[iy, ix] = 0
