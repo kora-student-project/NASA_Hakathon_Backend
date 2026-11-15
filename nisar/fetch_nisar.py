@@ -28,7 +28,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
 
@@ -278,6 +278,19 @@ def cmd_inspect(args) -> None:
         h5.visititems(show)
 
 
+def select_chain(granules: list[dict], series_start: str | None, max_granules: int) -> list[dict]:
+    """Які пари обробляти. Ряд, що вже почали, продовжуємо з його першої дати БЕЗ пропусків: накопичена сума
+    має завжди починатися з однієї й тієї ж пари, інакше нові значення «стрибнуть» відносно вже надісланих.
+    Перший запуск бере останні `max_granules` пар."""
+    if series_start is None:
+        return granules[-max_granules:]
+    return [g for g in granules if str(g["sec"]) >= series_start]
+
+
+def sent_label(res: dict) -> str:
+    return "вже є в базі" if res.get("duplicate") else res["severity"]
+
+
 def build_obs(obj: dict, sec: date, cumulative: float, gname: str) -> dict:
     return make_observation(obj["id"], round(cumulative, 2), sec.isoformat(), obj["longitude"], obj["latitude"],
                             source=f"NASA NISAR GUNW track {gname}")
@@ -302,7 +315,11 @@ def cmd_run(args) -> None:
     posted = 0
     for obj in objects:
         print(f"\n== Об'єкт {obj['id']}: {obj['name']} ({obj['latitude']}, {obj['longitude']})")
-        found = search_gunw(obj["longitude"], obj["latitude"], args.since)
+        prefix = f"{obj['id']}:"
+        known = {k: v for k, v in state.items() if k.startswith(prefix) and "pair_mm" in v}
+        stored_group = Counter(v["group"] for v in known.values()).most_common(1)[0][0] if known else None
+        # --since діє лише на першому запуску: далі ряд продовжується з уже збереженої першої дати
+        found = search_gunw(obj["longitude"], obj["latitude"], None if known else args.since)
         if not found:
             print("  GUNW над цим об'єктом не знайдено")
             continue
@@ -311,9 +328,10 @@ def cmd_run(args) -> None:
             groups[g["group"]].append(g)
         summary = ", ".join(f"{k}: {len(v)}" for k, v in sorted(groups.items()))
         print(f"  Знайдено GUNW: {len(found)} (траєкторії {summary})")
-        gname = args.group or max(groups, key=lambda k: len(groups[k]))
-        chain = groups[gname][-args.max_granules :]
-        print(f"  Беремо траєкторію {gname}, останні {len(chain)} пар")
+        gname = args.group or stored_group or max(groups, key=lambda k: len(groups[k]))
+        series_start = min((v["sec"] for v in known.values() if v["group"] == gname), default=None)
+        chain = select_chain(groups[gname], series_start, args.max_granules)
+        print(f"  Траєкторія {gname}: {len(chain)} пар" + (f", ряд триває з {series_start}" if series_start else ", новий ряд"))
 
         cumulative = 0.0
         prev_sec = None
@@ -327,7 +345,7 @@ def cmd_run(args) -> None:
             if key in state:
                 st = state[key]
                 if "pair_mm" not in st:
-                    print(f"вже оброблено, пропущено ({st.get('skipped')})")
+                    print(f"вже оброблено, пропущено ({st.get('skipped')}); накопичене нижче неточне")
                     continue
                 cumulative += st["pair_mm"]
                 print(f"вже обчислено, пара {st['pair_mm']:+.1f} мм, накопичено {cumulative:+.1f} мм", end="")
@@ -336,7 +354,7 @@ def cmd_run(args) -> None:
                     st["posted"] = True
                     posted += 1
                     save_state(state)
-                    print(f"  → відправлено: {res['severity']}", end="")
+                    print(f"  → відправлено: {sent_label(res)}", end="")
                 print()
                 continue
             if args.dry_run:
@@ -372,7 +390,7 @@ def cmd_run(args) -> None:
                 res = post_observation(obs)
                 state[key]["posted"] = True
                 posted += 1
-                print(f"    → бекенд: {res['severity']}" + (" (створено попередження)" if res.get("alert_created") else ""))
+                print(f"    → бекенд: {sent_label(res)}" + (" (створено попередження)" if res.get("alert_created") else ""))
             save_state(state)
     print(f"\nГотово. Відправлено спостережень: {posted}")
 

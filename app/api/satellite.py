@@ -33,7 +33,10 @@ async def ingest_satellite_data(
 ):
     if await db.get(MonitoredObject, data.object_id) is None:
         raise HTTPException(404, f"Object {data.object_id} not found")
-    return await satellite_service.ingest_observation(db, data)
+    try:
+        return await satellite_service.ingest_observation(db, data)
+    except satellite_service.DuplicateObservation:
+        raise HTTPException(409, "Observation for this object, date and source already exists")
 
 
 def _filtered(object_id: int | None, from_: date | None, to: date | None, limit: int):

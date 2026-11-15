@@ -2,7 +2,10 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+import logging
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.types import DateTime, TypeDecorator
 
@@ -68,8 +71,33 @@ async def get_db() -> AsyncIterator[AsyncSession]:
         yield session
 
 
+log = logging.getLogger("kora.db")
+
+# Унікальні індекси. Окремо від моделей, щоб їх можна було додати й до вже наявної бази
+# (create_all не змінює існуючі таблиці, а міграцій немає). IF NOT EXISTS: безпечно запускати щоразу.
+UNIQUE_INDEXES = (
+    # одне супутникове спостереження на (об'єкт, дата, джерело)
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_sat_object_date_source "
+    "ON satellite_observations (object_id, observation_date, source)",
+    # одне АКТИВНЕ попередження на (об'єкт, датчик або супутник, рівень); coalesce, бо NULL у індексах різні
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_active_alert "
+    "ON alerts (object_id, (coalesce(sensor_id, 0)), severity) WHERE is_resolved = false",
+)
+
+
+async def ensure_indexes(conn: AsyncConnection) -> None:
+    for ddl in UNIQUE_INDEXES:
+        await conn.execute(text(ddl))
+
+
 async def init_db() -> None:
     from app import models  # noqa: F401  (реєстрація таблиць)
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    for ddl in UNIQUE_INDEXES:  # кожен окремо: дублікати в старих даних не повинні зупиняти запуск
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(ddl))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not create unique index (existing duplicates?): %s", exc)

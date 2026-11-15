@@ -44,6 +44,7 @@ async def client():
         if pg:
             await conn.run_sync(database.Base.metadata.drop_all)
         await conn.run_sync(database.Base.metadata.create_all)
+        await database.ensure_indexes(conn)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()

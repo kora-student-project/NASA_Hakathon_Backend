@@ -35,6 +35,12 @@ class MeasurementRead(BaseModel):
     timestamp: datetime
     extra: dict | None
 
+    @field_validator("extra")
+    @classmethod
+    def hide_gps(cls, v: dict | None) -> dict | None:
+        # Точні координати пристрою зберігаємо, але публічно не віддаємо
+        return {k: x for k, x in v.items() if k != "gps"} if v else v
+
 
 class MeasurementIngestResult(BaseModel):
     status: str = "stored"

@@ -5,10 +5,11 @@ from app.config import get_settings
 
 
 def client_key(request: Request) -> str:
-    # За проксі (Render) реальний IP клієнта — перший у X-Forwarded-For
+    # За проксі (Render) IP клієнта дописує сам проксі в КІНЕЦЬ X-Forwarded-For. Перше значення
+    # клієнт може вигадати, тому беремо останнє (інакше ліміт обходиться підробленим заголовком).
     fwd = request.headers.get("x-forwarded-for")
     if fwd:
-        return fwd.split(",")[0].strip()
+        return fwd.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 

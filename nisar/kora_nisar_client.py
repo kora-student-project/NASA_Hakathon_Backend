@@ -53,6 +53,8 @@ def post_observation(obs: dict) -> dict:
         with urllib.request.urlopen(req, timeout=90) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
+        if e.code == 409:  # те саме спостереження вже є в базі: не помилка
+            return {"status": "duplicate", "duplicate": True, "severity": "NORMAL", "alert_created": False}
         raise SystemExit(f"Бекенд відповів HTTP {e.code}: {e.read().decode()[:300]}")
 
 

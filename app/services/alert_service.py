@@ -1,6 +1,7 @@
 from datetime import datetime, time, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -43,8 +44,13 @@ async def _create_alert_dedup(
     alert = Alert(
         object_id=object_id, sensor_id=sensor_id, severity=severity.value, message=message
     )
-    db.add(alert)
-    await db.flush()
+    try:
+        async with db.begin_nested():  # savepoint: програш у гонці не скасовує вимірювання
+            db.add(alert)
+            await db.flush()
+    except IntegrityError:  # паралельний запит уже створив таке саме активне попередження
+        existing = (await db.execute(select(Alert).where(*cond).limit(1))).scalar_one()
+        return existing, False
     return alert, True
 
 

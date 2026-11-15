@@ -1,3 +1,7 @@
+import os
+
+import pytest
+
 ADMIN = {"X-API-Key": "admin-key"}
 SAT = {"X-API-Key": "sat-key"}
 
@@ -145,6 +149,17 @@ SAMPLE = {
 }
 
 
+async def stored_extra(sensor_id: int) -> dict:
+    """Те, що реально лежить у базі (публічна відповідь ховає GPS)."""
+    from sqlalchemy import select
+
+    from app import database
+    from app.models import Measurement
+
+    async with database.SessionLocal() as db:
+        return (await db.execute(select(Measurement.extra).where(Measurement.sensor_id == sensor_id))).scalars().first()
+
+
 async def make_device(client, device_id="kora_tracker_01"):
     o = (await client.post("/api/objects", json={"name": "O", "latitude": 49.8, "longitude": 24}, headers=ADMIN)).json()
     s = await client.post("/api/sensors", json={"object_id": o["id"], "name": "tracker", "sensor_type": "tilt", "device_id": device_id}, headers=ADMIN)
@@ -159,7 +174,9 @@ async def test_telemetry_sample_payload(client):
     j = r.json()
     assert j["severity"] == "NORMAL" and abs(j["tilt_x"]) < 0.5 and abs(j["tilt_y"]) < 1.0
     h = (await client.get(f"/api/sensors/{s.json()['id']}/data")).json()[0]
-    assert h["temperature"] == 22.5 and h["extra"]["humidity"] == 55.0 and h["extra"]["gps"]["valid"] is True
+    assert h["temperature"] == 22.5 and h["extra"]["humidity"] == 55.0
+    assert "gps" not in h["extra"]  # координати пристрою публічно не віддаємо
+    assert (await stored_extra(s.json()["id"]))["gps"]["valid"] is True  # але зберігаємо
     st = (await client.get(f"/api/objects/{o['id']}/status")).json()
     assert st["latest_sensor_data"]["humidity"] == 55.0 and st["status"] == "NORMAL"
 
@@ -171,7 +188,8 @@ async def test_telemetry_tilt_alert_and_gps_invalid(client):
     # atan2(0.981, 9.81) ~ 5.7 deg -> CRITICAL
     assert r["severity"] == "CRITICAL" and r["alert_created"]
     h = (await client.get(f"/api/sensors/{s.json()['id']}/data")).json()[0]
-    assert h["extra"]["gps"]["lat"] is None
+    assert "gps" not in h["extra"]
+    assert (await stored_extra(s.json()["id"]))["gps"]["lat"] is None  # без фіксу координати не зберігаємо
 
 
 async def test_telemetry_errors(client):
@@ -234,3 +252,65 @@ async def test_per_device_rate_limit(client, monkeypatch):
     b = (await client.post("/api/sensors", json={"object_id": o["id"], "name": "b", "sensor_type": "tilt", "device_id": "dev_b"}, headers=ADMIN)).json()
     assert (await client.post("/api/sensors/data", json={**SAMPLE, "device_id": "dev_b"}, headers=DEV(b))).status_code == 201
     device_limiter._hits.clear()
+
+
+async def test_satellite_duplicate_is_409(client):
+    o, _ = await make_object_and_sensor(client)
+    assert (await client.post("/api/satellite/data", json=sat_body(o["id"]), headers=SAT)).status_code == 201
+    assert (await client.post("/api/satellite/data", json=sat_body(o["id"]), headers=SAT)).status_code == 409
+    other = {**sat_body(o["id"]), "source": "NASA NISAR GUNW track 28A"}  # інше джерело того ж дня — окремий запис
+    assert (await client.post("/api/satellite/data", json=other, headers=SAT)).status_code == 201
+    assert len((await client.get("/api/satellite/data", params={"object_id": o["id"]})).json()) == 2
+
+
+async def test_active_alert_unique_index(client):
+    """Дві однакові АКТИВНІ тривоги неможливі (і для датчика, і для супутника, де sensor_id = NULL), закриті можна."""
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+
+    from app import database
+    from app.models import Alert
+
+    o, s = await make_object_and_sensor(client)
+    for sensor_id in (s["id"], None):
+        async with database.SessionLocal() as db:
+            db.add(Alert(object_id=o["id"], sensor_id=sensor_id, severity="WARNING", message="a"))
+            await db.commit()
+        async with database.SessionLocal() as db:
+            db.add(Alert(object_id=o["id"], sensor_id=sensor_id, severity="WARNING", message="b"))
+            with pytest.raises(IntegrityError):
+                await db.commit()
+        async with database.SessionLocal() as db:
+            db.add(Alert(object_id=o["id"], sensor_id=sensor_id, severity="WARNING", message="c", is_resolved=True))
+            await db.commit()
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="справжні паралельні з'єднання є лише на Postgres")
+async def test_concurrent_ingest_creates_one_alert(client):
+    """10 одночасних вимірювань вище порога: рівно одне активне попередження (на Postgres це справжня гонка)."""
+    import asyncio
+
+    o, s = await make_object_and_sensor(client)
+    posts = [
+        client.post("/api/sensors/data", json=reading(s["id"], x=3.0, ts=f"2026-11-01T12:{i:02d}:00Z"), headers=DEV(s))
+        for i in range(10)
+    ]
+    results = await asyncio.gather(*posts)
+    assert all(r.status_code == 201 for r in results), [r.text for r in results if r.status_code != 201]
+    alerts = (await client.get("/api/alerts", params={"object_id": o["id"]})).json()
+    assert len(alerts) == 1
+
+
+def test_rate_limit_key_ignores_spoofed_forwarded_for():
+    from starlette.requests import Request
+
+    from app.ratelimit import client_key
+
+    def req(xff=None):
+        headers = [(b"x-forwarded-for", xff.encode())] if xff else []
+        return Request({"type": "http", "headers": headers, "client": ("10.0.0.9", 1234)})
+
+    # клієнт підробив перше значення; реальну IP дописав проксі в кінець
+    assert client_key(req("6.6.6.6, 203.0.113.7")) == "203.0.113.7"
+    assert client_key(req("203.0.113.7")) == "203.0.113.7"
+    assert client_key(req()) == "10.0.0.9"

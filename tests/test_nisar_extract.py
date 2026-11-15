@@ -73,3 +73,39 @@ def test_pair_dates_from_real_filename():
     fid = "NISAR_L2_PR_GUNW_032_123_D_063_033_2000_SH_20261008T174318_20261008T174354_20261020T174318_20261020T174354_P05023_N_F_J_001"
     ref, sec = fn.pair_dates(fid)
     assert str(ref) == "2026-10-08" and str(sec) == "2026-10-20"
+
+
+def test_series_continues_from_its_first_date_without_gaps():
+    """Регресія: накопичена сума не має залежати від того, скільки пар узяли в цей запуск."""
+    from datetime import date, timedelta
+
+    pairs = [{"sec": date(2026, 8, 15) + timedelta(days=12 * i)} for i in range(8)]  # 8 пар підряд
+
+    # перший запуск (ряду ще нема): лише останні K
+    first = fn.select_chain(pairs, None, 3)
+    assert [p["sec"] for p in first] == [p["sec"] for p in pairs[-3:]]
+
+    # наступні запуски: ряд триває з тієї ж першої дати, навіть якщо нових пар більше за K
+    start = str(first[0]["sec"])
+    later = fn.select_chain(pairs, start, 3)
+    assert later[0]["sec"] == first[0]["sec"] and later[-1]["sec"] == pairs[-1]["sec"]
+    assert len(later) == 3  # у цьому прикладі нових пар ще нема
+
+    more = pairs + [{"sec": pairs[-1]["sec"] + timedelta(days=12 * i)} for i in (1, 2, 3, 4)]
+    cont = fn.select_chain(more, start, 3)  # 4 нових пар > K=3: усе одно без пропусків
+    assert cont[0]["sec"] == first[0]["sec"] and len(cont) == 3 + 4
+
+
+def test_duplicate_post_is_not_an_error(monkeypatch):
+    import io
+    import urllib.error
+
+    import kora_nisar_client as client
+
+    def boom(*a, **k):
+        raise urllib.error.HTTPError("u", 409, "Conflict", {}, io.BytesIO(b"{}"))
+
+    monkeypatch.setenv("API_KEY_SATELLITE", "k")
+    monkeypatch.setattr(client.urllib.request, "urlopen", boom)
+    res = client.post_observation({"x": 1})
+    assert res["duplicate"] is True and fn.sent_label(res) == "вже є в базі"
