@@ -292,6 +292,46 @@ def build_obs(obj: dict, sec: date, cumulative: float, gname: str) -> dict:
                             source=f"NASA NISAR GUNW track {gname}")
 
 
+def known_pairs(state: dict, object_id: int) -> dict:
+    """Уже обчислені пари цього об'єкта (без пропущених за якістю)."""
+    prefix = f"{object_id}:"
+    return {k: v for k, v in state.items() if k.startswith(prefix) and "pair_mm" in v}
+
+
+def plan_series(known: dict, groups: dict[str, list], group_arg: str | None, max_granules: int):
+    """Яку траєкторію й які пари обробляти: група з аргументу, інакше вже збережена, інакше та, де найбільше пар."""
+    stored = Counter(v["group"] for v in known.values()).most_common(1)
+    gname = group_arg or (stored[0][0] if stored else None) or max(groups, key=lambda k: len(groups[k]))
+    series_start = min((v["sec"] for v in known.values() if v["group"] == gname), default=None)
+    return gname, series_start, select_chain(groups[gname], series_start, max_granules)
+
+
+def compute_pair(g: dict, obj: dict, token: str, args) -> dict:
+    """Відкриває файл (віддалено або завантаженням) і рахує зміщення в точці об'єкта.
+    ValueError = пара не пройшла перевірку якості."""
+    if args.download:
+        h5, path = open_downloaded(g, token, HERE / "cache")
+    else:
+        h5, path = open_remote(g["url"], token), None
+    try:
+        with h5:
+            return extract_displacement(
+                h5, obj["longitude"], obj["latitude"],
+                ref_radius_m=args.ref_radius, min_coherence=args.min_coherence,
+            )
+    finally:
+        if path and not args.keep_files:
+            path.unlink(missing_ok=True)
+
+
+def post_pair(obj: dict, g: dict, cumulative: float, gname: str, st: dict, state: dict) -> str:
+    """Відправляє накопичене значення, позначає пару відправленою у стані. Повертає рядок для виводу."""
+    res = post_observation(build_obs(obj, g["sec"], cumulative, gname))
+    st["posted"] = True
+    save_state(state)
+    return sent_label(res) + (" (створено попередження)" if res.get("alert_created") else "")
+
+
 def cmd_run(args) -> None:
     load_dotenv(args.env_file)
     if args.env_file:  # окремий файл = окремий стан, щоб не мішати з іншими серверами
@@ -311,9 +351,7 @@ def cmd_run(args) -> None:
     posted = 0
     for obj in objects:
         print(f"\n== Об'єкт {obj['id']}: {obj['name']} ({obj['latitude']}, {obj['longitude']})")
-        prefix = f"{obj['id']}:"
-        known = {k: v for k, v in state.items() if k.startswith(prefix) and "pair_mm" in v}
-        stored_group = Counter(v["group"] for v in known.values()).most_common(1)[0][0] if known else None
+        known = known_pairs(state, obj["id"])
         # --since діє лише на першому запуску: далі ряд продовжується з уже збереженої першої дати
         found = search_gunw(obj["longitude"], obj["latitude"], None if known else args.since)
         if not found:
@@ -322,11 +360,8 @@ def cmd_run(args) -> None:
         groups: dict[str, list] = defaultdict(list)
         for g in found:
             groups[g["group"]].append(g)
-        summary = ", ".join(f"{k}: {len(v)}" for k, v in sorted(groups.items()))
-        print(f"  Знайдено GUNW: {len(found)} (траєкторії {summary})")
-        gname = args.group or stored_group or max(groups, key=lambda k: len(groups[k]))
-        series_start = min((v["sec"] for v in known.values() if v["group"] == gname), default=None)
-        chain = select_chain(groups[gname], series_start, args.max_granules)
+        print(f"  Знайдено GUNW: {len(found)} (траєкторії {', '.join(f'{k}: {len(v)}' for k, v in sorted(groups.items()))})")
+        gname, series_start, chain = plan_series(known, groups, args.group, args.max_granules)
         print(f"  Траєкторія {gname}: {len(chain)} пар" + (f", ряд триває з {series_start}" if series_start else ", новий ряд"))
 
         cumulative = 0.0
@@ -338,7 +373,8 @@ def cmd_run(args) -> None:
             if prev_sec is not None and g["ref"] != prev_sec:
                 print("\n    ! пропуск між парами: накопичене зміщення ненадійне", end="  ")
             prev_sec = g["sec"]
-            if key in state:
+
+            if key in state:  # пару вже оброблено раніше
                 st = state[key]
                 if "pair_mm" not in st:
                     print(f"вже оброблено, пропущено ({st.get('skipped')}); накопичене нижче неточне")
@@ -346,28 +382,16 @@ def cmd_run(args) -> None:
                 cumulative += st["pair_mm"]
                 print(f"вже обчислено, пара {st['pair_mm']:+.1f} мм, накопичено {cumulative:+.1f} мм", end="")
                 if not st.get("posted") and not args.no_post and not args.dry_run:
-                    res = post_observation(build_obs(obj, g["sec"], cumulative, gname))
-                    st["posted"] = True
                     posted += 1
-                    save_state(state)
-                    print(f"  → відправлено: {sent_label(res)}", end="")
+                    print(f"  → відправлено: {post_pair(obj, g, cumulative, gname, st, state)}", end="")
                 print()
                 continue
+
             if args.dry_run:
                 print("(dry-run)")
                 continue
             try:
-                if args.download:
-                    h5, path = open_downloaded(g, token, HERE / "cache")
-                else:
-                    h5, path = open_remote(g["url"], token), None
-                with h5:
-                    r = extract_displacement(
-                        h5, obj["longitude"], obj["latitude"],
-                        ref_radius_m=args.ref_radius, min_coherence=args.min_coherence,
-                    )
-                if path and not args.keep_files:
-                    path.unlink(missing_ok=True)
+                r = compute_pair(g, obj, token, args)
             except ValueError as e:  # якість: не рахуємо, запам'ятовуємо
                 print(f"пропущено: {e}")
                 state[key] = {"skipped": str(e)}
@@ -379,15 +403,12 @@ def cmd_run(args) -> None:
                 "pair_mm": r["displacement_mm"], "ref": str(g["ref"]), "sec": str(g["sec"]), "group": gname,
                 "coherence": r["coherence"], "posted": False,
             }
-            obs = build_obs(obj, g["sec"], cumulative, gname)
+            save_state(state)
             if args.no_post:
                 print("    (без відправки: --no-post)")
             else:
-                res = post_observation(obs)
-                state[key]["posted"] = True
                 posted += 1
-                print(f"    → бекенд: {sent_label(res)}" + (" (створено попередження)" if res.get("alert_created") else ""))
-            save_state(state)
+                print(f"    → бекенд: {post_pair(obj, g, cumulative, gname, state[key], state)}")
     print(f"\nГотово. Відправлено спостережень: {posted}")
 
 

@@ -134,3 +134,60 @@ def test_csv_and_simulate_distinguish_duplicates(monkeypatch, tmp_path, capsys):
     answers = iter([{"status": "duplicate", "duplicate": True, "severity": "NORMAL", "alert_created": False}])
     client.cmd_simulate(Namespace(object_id=1, lon=24.0, lat=49.8, count=1, rate=1.5))
     assert "вже є в базі" in capsys.readouterr().out
+
+
+def _granules(n, group="28A"):
+    from datetime import date, timedelta
+
+    base = date(2026, 8, 3)
+    return [{"file_id": f"g{i}", "ref": base + timedelta(days=12 * i), "sec": base + timedelta(days=12 * (i + 1)),
+             "url": "u", "group": group, "size": 1, "product": None} for i in range(n)]
+
+
+def test_known_pairs_ignores_other_objects_and_skipped_pairs():
+    state = {"1:g0": {"pair_mm": 1.0, "group": "28A", "sec": "2026-08-15"},
+             "1:g1": {"skipped": "low coherence"},  # без pair_mm: не частина ряду
+             "12:g0": {"pair_mm": 9.0, "group": "28A", "sec": "2026-08-15"}}  # інший об'єкт («12:» ≠ «1:»)
+    assert list(fn.known_pairs(state, 1)) == ["1:g0"]
+
+
+def test_plan_series_picks_group_and_window():
+    groups = {"28A": _granules(5, "28A"), "100A": _granules(8, "100A")}
+    # перший запуск: найбільша група, останні K пар, ряд новий
+    g, start, chain = fn.plan_series({}, groups, None, 3)
+    assert (g, start, len(chain)) == ("100A", None, 3)
+    # ряд уже почато на 28A: лишаємось на ній, хоч 100A більша, і йдемо з першої збереженої дати
+    known = {"1:g1": {"pair_mm": 1.0, "group": "28A", "sec": str(groups["28A"][1]["sec"])}}
+    g, start, chain = fn.plan_series(known, groups, None, 3)
+    assert g == "28A" and start == str(groups["28A"][1]["sec"]) and [c["file_id"] for c in chain] == ["g1", "g2", "g3", "g4"]
+    # явний --group іншої траєкторії починає новий ряд
+    g, start, chain = fn.plan_series(known, groups, "100A", 2)
+    assert (g, start, len(chain)) == ("100A", None, 2)
+
+
+def test_cmd_run_two_runs_give_one_consistent_series(monkeypatch, tmp_path):
+    """Регресія накопичення: другий запуск (інше вікно, нові пари) продовжує той самий ряд, а не рахує з нуля."""
+    from argparse import Namespace
+
+    pair = {f"g{i}": float(i + 1) for i in range(6)}  # g0=1 … g5=6 мм
+    available = {"n": 4}
+    posted = []
+    monkeypatch.setattr(fn, "STATE_FILE", tmp_path / "state.json")
+    monkeypatch.setattr(fn, "load_dotenv", lambda path=None: None)
+    monkeypatch.setenv("EARTHDATA_TOKEN", "t")
+    monkeypatch.setattr(fn, "api_get", lambda path: [{"id": 1, "name": "o", "latitude": 49.8, "longitude": 24.0}])
+    monkeypatch.setattr(fn, "search_gunw", lambda lon, lat, since: _granules(available["n"]))
+    monkeypatch.setattr(fn, "compute_pair", lambda g, obj, token, args: {"displacement_mm": pair[g["file_id"]], "coherence": 0.9})
+    monkeypatch.setattr(fn, "post_observation", lambda obs: posted.append(obs["displacement"]) or {"severity": "NORMAL", "alert_created": False})
+    args = Namespace(env_file=None, dry_run=False, object_id=None, since=None, group=None, max_granules=3,
+                     no_post=False, download=False, keep_files=False, ref_radius=2000.0, min_coherence=0.3)
+
+    fn.cmd_run(args)  # доступні g0..g3, K=3 → пари g1,g2,g3 (2+3+4)
+    assert posted == [2.0, 5.0, 9.0]
+
+    available["n"] = 6  # з'явилися g4, g5
+    fn.cmd_run(args)  # ряд триває з g1: нові значення продовжують суму; старі не відправляються вдруге
+    assert posted == [2.0, 5.0, 9.0, 14.0, 20.0]
+
+    fn.cmd_run(args)  # третій запуск нічого нового не робить
+    assert len(posted) == 5
