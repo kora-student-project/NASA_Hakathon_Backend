@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.rules import classify, displacement_severity, to_mm
 from app.models import Alert, Measurement, MonitoredObject, SatelliteObservation, Sensor
 from app.schemas.object import (
     LatestSatelliteData,
@@ -15,17 +16,6 @@ from app.schemas.object import (
 )
 
 _RANK = {Severity.NORMAL: 0, Severity.WARNING: 1, Severity.CRITICAL: 2}
-_TO_MM = {"mm": 1.0, "cm": 10.0, "m": 1000.0}
-
-
-def classify(value: float, warning: float, critical: float) -> Severity:
-    """Класифікує значення за модулем відносно порогів."""
-    v = abs(value)
-    if v > critical:
-        return Severity.CRITICAL
-    if v > warning:
-        return Severity.WARNING
-    return Severity.NORMAL
 
 
 async def _create_alert_dedup(
@@ -77,8 +67,8 @@ async def evaluate_satellite(
     db: AsyncSession, obs: SatelliteObservation
 ) -> tuple[Severity, Alert | None, bool]:
     s = get_settings()
-    mm = obs.displacement * _TO_MM[obs.unit]
-    severity = classify(mm, s.displacement_warning_threshold_mm, s.displacement_critical_threshold_mm)
+    mm = to_mm(obs.displacement, obs.unit)
+    severity = displacement_severity(obs.displacement, obs.unit)
     if severity is Severity.NORMAL:
         return severity, None, False
     limit = (
@@ -151,6 +141,7 @@ async def compute_object_status(db: AsyncSession, obj: MonitoredObject) -> Objec
             displacement=latest_s.displacement,
             unit=latest_s.unit,
             observation_date=latest_s.observation_date,
+            severity=displacement_severity(latest_s.displacement, latest_s.unit),
         )
         if latest_s
         else None,

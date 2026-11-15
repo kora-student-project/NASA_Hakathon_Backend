@@ -1,8 +1,9 @@
 from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
+from app.rules import displacement_severity
 from app.schemas.object import Severity
 
 
@@ -38,6 +39,11 @@ class SatelliteRead(BaseModel):
     observation_date: date
     geometry: dict[str, Any]
     source: str
+
+    @computed_field
+    @property
+    def severity(self) -> Severity:
+        return displacement_severity(self.displacement, self.unit)
 
 
 class SatelliteIngestResult(BaseModel):

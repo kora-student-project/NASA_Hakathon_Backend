@@ -81,14 +81,7 @@ async def satellite_map(
         features=[
             GeoJSONFeature(
                 geometry=r.geometry,
-                properties={
-                    "id": r.id,
-                    "object_id": r.object_id,
-                    "displacement": r.displacement,
-                    "unit": r.unit,
-                    "observation_date": r.observation_date.isoformat(),
-                    "source": r.source,
-                },
+                properties=SatelliteRead.model_validate(r).model_dump(mode="json", exclude={"geometry"}),
             )
             for r in rows
         ]

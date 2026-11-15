@@ -58,3 +58,22 @@ async def test_vertical_axis_setting_changes_tilt(client, monkeypatch):
     monkeypatch.setattr(get_settings(), "device_vertical_axis", "z")
     r = (await client.post("/api/sensors/data", json=payload, headers=key)).json()
     assert r["tilt_x"] == pytest.approx(5.71, abs=0.01) and r["tilt_y"] == pytest.approx(0.0, abs=0.01)
+
+
+async def test_every_view_reports_the_same_severity(client):
+    """Один рахунок на бекенді: приймання, список, GeoJSON для карти й статус об'єкта не можуть розійтись."""
+    o, _ = await make_object_and_sensor(client)
+    cases = [("cm", 2.0, "2026-11-01", "WARNING"), ("mm", 10.0, "2026-11-02", "NORMAL"), ("m", -0.03, "2026-11-03", "CRITICAL")]
+    for unit, value, day, expected in cases:
+        body = {**sat_body(o["id"]), "unit": unit, "displacement": value, "observation_date": day}
+        r = await client.post("/api/satellite/data", json=body, headers=SAT)
+        assert r.json()["severity"] == expected
+
+    listed = (await client.get("/api/satellite/data", params={"object_id": o["id"]})).json()
+    mapped = (await client.get("/api/satellite/map", params={"object_id": o["id"]})).json()["features"]
+    by_day = {x["observation_date"]: x["severity"] for x in listed}
+    assert by_day == {"2026-11-01": "WARNING", "2026-11-02": "NORMAL", "2026-11-03": "CRITICAL"}
+    assert {f["properties"]["observation_date"]: f["properties"]["severity"] for f in mapped} == by_day
+
+    status = (await client.get(f"/api/objects/{o['id']}/status")).json()
+    assert status["latest_satellite_data"]["severity"] == "CRITICAL"  # остання за датою: 2026-11-03

@@ -44,6 +44,7 @@ class LatestSatelliteData(BaseModel):
     displacement: float
     unit: str
     observation_date: date
+    severity: Severity  # оцінка за порогами API: клієнт її не перераховує
 
 
 class ObjectStatus(BaseModel):
