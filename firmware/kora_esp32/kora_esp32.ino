@@ -88,7 +88,7 @@ int postMeasurement(float tiltX, float tiltY, float temp, const char *ts) {
   } else {
     http.begin(plain, url);
   }
-  http.setTimeout(15000);  // Render free може "прокидатися" ~30–60 с
+  http.setTimeout(60000);  // Render free "прокидається" ~30–60 с: коротший таймаут губить перший запит після простою
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-API-Key", API_KEY_DEVICE);
   int code = http.POST(body);
