@@ -58,6 +58,11 @@ def post_observation(obs: dict) -> dict:
         raise SystemExit(f"Бекенд відповів HTTP {e.code}: {e.read().decode()[:300]}")
 
 
+def sent_label(res: dict) -> str:
+    """Що показати після відправки: «вже є в базі» для дубліката (409), інакше рівень оцінки."""
+    return "вже є в базі" if res.get("duplicate") else res["severity"]
+
+
 def make_observation(object_id, displacement, obs_date, lon, lat, unit="mm", source="NASA NISAR"):
     return {
         "object_id": int(object_id),
@@ -79,7 +84,7 @@ def cmd_csv(args):
                 row.get("source") or "NASA NISAR",
             )
             res = post_observation(obs)
-            print(row["observation_date"], "->", res["severity"], "alert" if res["alert_created"] else "")
+            print(row["observation_date"], "->", sent_label(res), "alert" if res["alert_created"] else "")
 
 
 def cmd_simulate(args):
@@ -91,7 +96,7 @@ def cmd_simulate(args):
         obs = make_observation(args.object_id, round(disp, 2), d.isoformat(), args.lon, args.lat,
                                source="DEMO (simulated)")
         res = post_observation(obs)
-        print(d, f"{disp:7.2f} mm ->", res["severity"])
+        print(d, f"{disp:7.2f} mm ->", sent_label(res))
 
 
 def main():

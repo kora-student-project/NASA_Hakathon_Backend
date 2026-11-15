@@ -32,7 +32,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
 
-from kora_nisar_client import api_url, make_observation, phase_to_los_mm, post_observation
+from kora_nisar_client import api_url, make_observation, phase_to_los_mm, post_observation, sent_label
 
 HERE = Path(__file__).resolve().parent
 STATE_FILE = HERE / "state.json"
@@ -285,10 +285,6 @@ def select_chain(granules: list[dict], series_start: str | None, max_granules: i
     if series_start is None:
         return granules[-max_granules:]
     return [g for g in granules if str(g["sec"]) >= series_start]
-
-
-def sent_label(res: dict) -> str:
-    return "вже є в базі" if res.get("duplicate") else res["severity"]
 
 
 def build_obs(obj: dict, sec: date, cumulative: float, gname: str) -> dict:

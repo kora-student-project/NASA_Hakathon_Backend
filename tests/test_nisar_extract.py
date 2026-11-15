@@ -109,3 +109,28 @@ def test_duplicate_post_is_not_an_error(monkeypatch):
     monkeypatch.setattr(client.urllib.request, "urlopen", boom)
     res = client.post_observation({"x": 1})
     assert res["duplicate"] is True and fn.sent_label(res) == "вже є в базі"
+
+
+def test_csv_and_simulate_distinguish_duplicates(monkeypatch, tmp_path, capsys):
+    """Регресія: раніше дублікат (409) друкувався як NORMAL і не відрізнявся від нового спостереження."""
+    from argparse import Namespace
+
+    import kora_nisar_client as client
+
+    answers = iter([
+        {"status": "stored", "severity": "WARNING", "alert_created": True},
+        {"status": "duplicate", "duplicate": True, "severity": "NORMAL", "alert_created": False},
+    ])
+    monkeypatch.setattr(client, "post_observation", lambda obs: next(answers))
+
+    f = tmp_path / "r.csv"
+    f.write_text("object_id,displacement,unit,observation_date,longitude,latitude,source\n"
+                 "1,-12,mm,2026-10-20,24.0,49.8,T\n1,-12,mm,2026-10-20,24.0,49.8,T\n", encoding="utf-8")
+    client.cmd_csv(Namespace(file=str(f)))
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert "WARNING" in lines[0] and "alert" in lines[0]
+    assert "вже є в базі" in lines[1] and "NORMAL" not in lines[1]
+
+    answers = iter([{"status": "duplicate", "duplicate": True, "severity": "NORMAL", "alert_created": False}])
+    client.cmd_simulate(Namespace(object_id=1, lon=24.0, lat=49.8, count=1, rate=1.5))
+    assert "вже є в базі" in capsys.readouterr().out
